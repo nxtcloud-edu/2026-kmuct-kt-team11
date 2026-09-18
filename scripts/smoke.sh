@@ -40,7 +40,9 @@ EMAIL="smoke-$RANDOM@example.com"
 r=$(req -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' -d "{\"email\":\"$EMAIL\",\"intent\":\"sign_in\"}")
 ck "POST /auth/magic-link is 202" 202 "$(code "$r")"
 
-r=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' -d '{"email":"nobody-at-all@example.com","intent":"sign_in"}')
+# Randomised: a fixed address trips the 5/hour per-email rate limit once the suite
+# has been run a few times, which fails the test for the wrong reason.
+r=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' -d "{\"email\":\"nobody-$N@example.com\",\"intent\":\"sign_in\"}")
 ck "unknown email also 202 (no enumeration oracle)" 202 "$(code "$r")"
 
 TOKEN=$(grep -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
