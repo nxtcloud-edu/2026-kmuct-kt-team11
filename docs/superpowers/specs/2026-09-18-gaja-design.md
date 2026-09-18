@@ -281,7 +281,8 @@ Each rung runs only when the one above leaves confidence below the band boundary
 boundaries themselves are tuned against the extraction eval set (§11), not fixed here.
 
 ```
-1. title / caption text     ~free    → keyword search
+1. title / caption text     ~free    → keyword search  (OPPORTUNISTIC — see §12/1a;
+                                       Meta does not document this field)
 2. 8 frames, evenly sampled,
    deduped by perceptual hash ~5–15s  → vision: name, category, hook,
                                         visible price, signage
@@ -384,6 +385,12 @@ Cache-first always · concurrency cap with jitter · circuit breaker → Google 
 `degraded = true` and a visible "영업시간 미확인" · **nightly pre-warm of every user's saved
 places**, which moves scrape load off the request path and turns a planning run from ~60 s of
 mostly-fetches into ~10 s of mostly-cache-hits.
+
+**Scheduled contract test (required, see §12/2a).** Naver Place renders from an internal GraphQL
+API whose shape changes frequently. A circuit breaker detects blocking; it does **not** detect a
+changed response shape, which returns 200 and quietly poisons `place_facts`. So: a scheduled job
+scrapes a fixed set of ~5 known-stable places and asserts the parsed fields against recorded
+values. A mismatch pages before users get wrong hours — not after.
 
 ### 7.6 Fan-out
 
@@ -523,23 +530,52 @@ creative task go stale the first time the prompt improves; these assertions stay
 Replay mode means a demo cannot be broken by rate-limiting, an open circuit breaker, or a café
 changing its hours an hour beforehand.
 
-## 12. Unverified assumptions
+## 12. External assumptions — verified 2026-09-18
 
-These are stated at high confidence but **must be verified before implementation begins.** They
-are listed here rather than silently assumed because §6 and §7 are built directly on them.
+All six were checked against primary sources. Four confirmed as written; **two came back
+materially different and changed the design.** Sources listed at the end of this section.
 
-1. The Instagram Messaging API delivers shared reels as an `ig_reel` attachment with a
-   short-lived CDN URL and an optional `title`, and does **not** expose the reel's location tag,
-   full caption, or author to the forwarding recipient.
-2. Naver Place hours, break times, menus and reviews have no official public API and are
-   reachable only by scraping — and the terms-of-service position on that scrape is acceptable
-   for the intended use. **This is a product risk, not a code risk.**
-3. Naver blog search *is* an official API and is usable for wait-time evidence.
-4. Kakao Local and Naver Search local return identity and coordinates but no hours, prices or
-   reviews.
-5. Google Places returns structured hours, price band and reviews for Seoul, with thin coverage
-   of new cafés, pop-ups and small exhibitions.
-6. No API of any provider exposes wait times.
+| # | assumption | verdict |
+|---|---|---|
+| 1 | `ig_reel` attachment: short-lived CDN url, optional `title`, no location tag / full caption / author | **confirmed, and stricter** — see 1a |
+| 2 | Naver Place has no official API; scraping only | **confirmed, and more fragile** — see 2a |
+| 3 | Naver blog search is an official API | confirmed — `openapi.naver.com/v1/search/blog` |
+| 4 | Kakao Local / Naver local return identity + coords, no hours | confirmed — `openapi.naver.com/v1/search/local` exists, no Place API is listed anywhere in Naver's official API catalogue |
+| 5 | Google Places returns hours, price band, reviews for Seoul | API surface confirmed. **Coverage thinness for new cafés and pop-ups remains unverified** — it is a claim about data density, not API shape, and can only be settled by sampling real 성수 places |
+| 6 | No provider exposes wait times | confirmed, Google included |
+
+**1a. `title` is less reliable than assumed, and this promotes the vision rung.**
+Meta's own webhook documentation does *not* document the `ig_reel` payload fields at all, and
+states only: *"Only the URL for the shared media or post is included in the notification when a
+customer sends a message with a share."* The `reel_video_id` / `title` / `url` shape is reported
+consistently by third-party implementations, not by Meta. **Consequence:** §6.2 rung 1 (title
+text) must be treated as an opportunistic bonus, not a rung the ladder can rely on. The vision
+pass is the *primary* extraction path, not a fallback. Budget latency and cost accordingly.
+
+Also confirmed: the Messaging API only surfaces DMs sent **to** Business or Creator accounts.
+`@gaja.official` must be Professional — already assumed — but senders may be ordinary personal
+accounts, which is what D3 requires.
+
+**2a. The Naver scrape is more fragile than a circuit breaker covers.**
+Naver Place renders from an **internal GraphQL API whose query structure is complex and changes
+frequently.** A circuit breaker catches *blocking*; it does not catch a silently changed response
+shape, which would poison `place_facts` with wrong or empty values while every request still
+returns 200. **Consequence:** §7.5 gains a scheduled contract test (added). Second consequence:
+managed scraping providers for Naver Place exist commercially, and routing the scrape through one
+trades cost for both the maintenance burden and a meaningful slice of the ToS exposure. That is a
+build-vs-buy decision for `data-engineer` in slice 2, not a decision this spec makes.
+
+**On D9, confidence-gated wait times — the verification strengthens it.** Google's own popular-
+times data is extractable only by scraping `aria-label` strings, and the extracted values are
+language-dependent and frequently wrong. So inferring waits from dated Korean blog text is not a
+*worse* option than the alternative; it is a comparable one that ships its own evidence. The
+confidence gate stays.
+
+**Sources:** Meta [Webhooks for Instagram Messaging](https://developers.facebook.com/docs/messenger-platform/instagram/features/webhook/) ·
+[Naver Open API list](https://naver.github.io/naver-openapi-guide/apilist.html) ·
+[네이버 크롤링 차단 방식](https://blog.hashscraper.com/reasons-why-naver-crawling-is-blocked-and-solutions?locale=ko) ·
+[Google Business Profile: popular times API](https://support.google.com/business/thread/44431586/is-there-an-api-available-that-i-can-use-to-show-popular-times-wait-times-on-my-web?hl=en) ·
+[populartimes](https://github.com/m-wrzr/populartimes)
 
 ## 13. Out of scope
 
