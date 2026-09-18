@@ -148,7 +148,10 @@ users
 groups          id, name, created_by, created_at
 group_members   group_id, user_id, role (owner|member), joined_at
                 unique (group_id, user_id)
-group_invites   token, group_id, created_by, expires_at, used_by, used_at
+
+auth_tokens     id, token_hash unique, igsid NULL, group_id NULL,
+                expires_at, used_at NULL, created_at
+sessions        id, user_id, expires_at, created_at
 
 saved_places
   id            uuid pk
@@ -187,6 +190,14 @@ it captures *what kind of appeal* moves this person.
 
 `groups.kind` is deliberately absent. Two members is a couple; party composition comes from
 `itineraries.for_members`.
+
+**There is no `group_invites` table.** A group invite is an `auth_tokens` row carrying a
+`group_id`; a DM magic link is an `auth_tokens` row carrying an `igsid`. One token table means one
+consumption path, so single-use and expiry are implemented and tested once rather than twice —
+and §3/D3's "same mechanism, two meanings" becomes literal rather than aspirational. Tokens are
+stored **hashed**; the raw value exists only in the link. `sessions` is a server-side table rather
+than a JWT because §13 notes the magic link is a bearer credential in a DM: revocability is worth
+more here than statelessness.
 
 ### 5.3 Research cache
 

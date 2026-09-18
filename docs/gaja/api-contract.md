@@ -370,10 +370,50 @@ Part of the contract, not an implementation detail. `429` carries `Retry-After`.
 | 4 | Is `DELETE /api/groups` correct at all, or should groups be archivable? | you | `DELETE /api/groups`, low urgency |
 | 5 | Streaming transport for slice 2 (SSE vs poll) | `product-engineer`, with `ai-interaction-designer` | Slice 2, not now |
 
+## Decisions taken (were open #2 and #3)
+
+Both were reversible, so defaults were taken rather than blocking:
+
+- **#2 `area` — client-supplied and required in slice 1.** There is no geocoder until slice 2
+  adds the Kakao adapter, and someone hand-entering a café in 성수 knows it is 성수. Slice 2 makes
+  the field optional and server-resolves it; **loosening a required field is non-breaking**, so
+  this direction is safe and the reverse would not have been.
+- **#3 magic-link lifetime — 15 minutes, single-use.** Conventional for a sign-in link.
+  `[unverified]` against real delivery latency; if DM or email delivery proves slower than that,
+  raise it rather than making links reusable.
+
+Open decisions 1, 4 and 5 remain open and none of them block slice 1.
+
+## Verification — both checks now pass
+
+| Check | Result |
+|---|---|
+| **D2** contract lints clean | ✅ `npx @redocly/cli lint openapi.yaml` → **valid, 0 warnings** |
+| **D3** mock exercised on the primary flow | ✅ `@stoplight/prism-cli mock` → 7/7 steps answered |
+
+`docs/gaja/openapi.yaml` — 3.1.0, 21 operations, all with `operationId`.
+
+**Four real defects the linter and mock caught**, none of which prose review would have:
+
+1. `group_id`'s `oneOf: [{string, format: uuid}, {string, const: all}]` was **not mutually
+   exclusive** — `format` is an annotation in JSON Schema, not a constraint, so both branches
+   accept any string. Replaced with one string schema and a pattern.
+2. 21 operations had no `operationId`. Client generators derive method names from it; without
+   them a generated client has names like `postApiSavedPlaces1`.
+3. No `license` on `info`. Set to `UNLICENSED` — internal, not published.
+4. Five tags had no description.
+
+**What the mock confirmed:** the security scheme is enforced (`GET /me` without the session
+cookie returns the `unauthenticated` problem body, not an empty 401), the pagination envelope
+serialises as specified, `POST /places` returns the `matched: true` dedupe branch, and the
+RFC 9457 shape round-trips.
+
+**What a mock cannot confirm, and what is therefore still unproven:** every rule in §2's
+object-level authorization, the idempotency replay behaviour, the `CHECK`-constraint 409, and the
+duplicate-save rule. Prism serves examples — it does not run logic. Those are `backend-engineer`'s
+to implement and to test.
+
 ## Next
 
-The contract is written but **not mechanically verified** — there is no OpenAPI file yet, so
-nothing has been linted or mocked. Step 7 of the workflow is only done when
-`npx @redocly/cli lint openapi.yaml` passes and `npx @stoplight/prism-cli mock` answers the
-primary flow. Generating `docs/gaja/openapi.yaml` from this document is the immediate next task,
-and it is what turns this from prose into something a client can be built against.
+Step 1 of the run order is complete. `docs/gaja/api-contract.md` and `docs/gaja/openapi.yaml`
+both exist; slice 1 is ready to build against them.
