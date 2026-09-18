@@ -1,0 +1,28 @@
+# Secrets — Meta app secret, Naver/Kakao/Google keys, DB URLs
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Local data — scraped place facts, downloaded reels, fixtures with real user content
+.cache/
+tmp/
+*.sqlite
+*.db
+media/
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
+
+# Tracked on purpose: .agents/ (shared cross-role decisions), docs/
