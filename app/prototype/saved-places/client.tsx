@@ -15,23 +15,29 @@ export function Prototype() {
   const params = useSearchParams();
   const variant = (params.get('variant') ?? 'A').toUpperCase();
   const force = params.get('state'); // loading | empty | error — for demonstrating states
-  const [s, setS] = useState<State>({ k: 'loading' });
+  // Forced states are derived during render, not set from inside the effect —
+  // a synchronous setState in an effect body causes cascading renders.
+  const forced: State | null =
+    force === 'loading' ? { k: 'loading' }
+    : force === 'empty' ? { k: 'ok', rows: [] }
+    : force === 'error' ? { k: 'error', status: 500, detail: '저장한 곳을 불러오지 못했어요.' }
+    : null;
+
+  const [fetched, setFetched] = useState<State>({ k: 'loading' });
+  const s = forced ?? fetched;
 
   useEffect(() => {
-    if (force === 'loading') return;                       // stays in skeleton
-    if (force === 'empty') { setS({ k: 'ok', rows: [] }); return; }
-    if (force === 'error') { setS({ k: 'error', status: 500, detail: '저장한 곳을 불러오지 못했어요.' }); return; }
-
+    if (force) return;
     let alive = true;
     fetch('/api/saved-places?limit=100')
       .then(async (r) => {
         if (!alive) return;
-        if (r.status === 401) return setS({ k: 'unauth' });
+        if (r.status === 401) return setFetched({ k: 'unauth' });
         const body = await r.json();
-        if (!r.ok) return setS({ k: 'error', status: r.status, detail: body.detail ?? '알 수 없는 오류' });
-        setS({ k: 'ok', rows: body.data });
+        if (!r.ok) return setFetched({ k: 'error', status: r.status, detail: body.detail ?? '알 수 없는 오류' });
+        setFetched({ k: 'ok', rows: body.data });
       })
-      .catch(() => alive && setS({ k: 'error', status: 0, detail: '서버에 연결하지 못했어요.' }));
+      .catch(() => alive && setFetched({ k: 'error', status: 0, detail: '서버에 연결하지 못했어요.' }));
     return () => { alive = false; };
   }, [force]);
 
