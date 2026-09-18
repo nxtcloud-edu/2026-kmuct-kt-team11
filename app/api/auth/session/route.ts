@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { queryOne, tx } from '@/lib/db';
+import { tx } from '@/lib/db';
 import { withRoute, json } from '@/lib/route';
 import { ProblemError } from '@/lib/problem';
 import { currentUser, issueSession, revokeSession, toMe, type SessionUser } from '@/lib/session';
