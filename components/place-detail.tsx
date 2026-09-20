@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Card, Chip } from '@/components/surface';
+import { buttonClassName, Card, Chip } from '@/components/surface';
 import { Icon, type IconName } from '@/components/icons';
 import { reelThumb } from '@/lib/reel-thumb';
 import type { SavedPlaceDetail, SiblingPlace } from '@/lib/saved-places';
@@ -387,7 +387,18 @@ export function PlaceDetail({ detail }: { detail: SavedPlaceDetail }) {
       {place?.area ? (
         <Link
           href={`/saved-places/${saved.id}/nearby`}
-          className={`${ACTION_BASE} ${ACTION_TONE.secondary} w-full`}
+          /* `buttonClassName`, NOT `ACTION_BASE`. That recipe is 44px — the bare
+             `--tap-min` — because it was written for the three chips sharing the
+             row above, where three labels have to fit across 430px. This control
+             is alone on its line and full width, so it was inheriting a height
+             chosen for a constraint it does not have and reading as a squat
+             strip. The shared button recipe gives it `--field-height` (56px),
+             the same as every other full-width control in the app, and it is
+             shared rather than copied so the two cannot drift. */
+          className={`${buttonClassName('secondary')} mt-[var(--space-7)] w-full`}
+          /* `buttonClassName` carries the shape, never the type — `Button`
+             applies this separately, so every link-as-button caller pairs the
+             two. Without it the label falls back to inherited size. */
           style={{ font: 'var(--type-button)' }}
         >
           주변 장소 찾기
