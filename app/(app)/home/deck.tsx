@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedPlace } from '@/lib/api/types';
 import { reelThumb } from '@/lib/reel-thumb';
+import { Icon, type IconName } from '@/components/icons';
 
 /**
  * The saved-places deck.
@@ -182,9 +183,10 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
         >
           {current.place?.category ? (
             <span
-              className="inline-flex items-center rounded-[var(--radius-sm)] bg-[var(--tag-mint-bg)] px-[var(--space-7)] py-[var(--space-3)] text-ink"
+              className="inline-flex items-center gap-[var(--space-4)] rounded-[var(--radius-sm)] bg-[var(--tag-mint-bg)] px-[var(--space-7)] py-[var(--space-4)] text-ink"
               style={{ font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)' }}
             >
+              <Icon name={current.place.category as IconName} size={14} />
               {CATEGORY_KO[current.place.category] ?? current.place.category}
             </span>
           ) : null}

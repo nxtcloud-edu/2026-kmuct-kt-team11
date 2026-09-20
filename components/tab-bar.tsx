@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { Icon, type IconName } from './icons';
 
 /**
  * The signed-in chrome: four tabs in a floating pill, and nothing else.
@@ -26,12 +27,12 @@ import { usePathname } from 'next/navigation';
  * data crosses into client-side state.
  */
 
-const TABS = [
-  { href: '/home', label: '홈' },
-  { href: '/saved-places', label: '저장한 곳' },
-  { href: '/groups', label: '그룹' },
-  { href: '/account', label: '계정' },
-] as const;
+const TABS: { href: string; label: string; icon: IconName }[] = [
+  { href: '/home', label: '홈', icon: 'home' },
+  { href: '/saved-places', label: '저장한 곳', icon: 'saved' },
+  { href: '/groups', label: '그룹', icon: 'groups' },
+  { href: '/account', label: '계정', icon: 'account' },
+];
 
 export function TabBarShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -48,7 +49,7 @@ export function TabBarShell({ children }: { children: React.ReactNode }) {
                    bg-canvas shadow-float
                    max-[479px]:w-[calc(100vw-var(--gutter)*2)]"
       >
-        {TABS.map(({ href, label }) => {
+        {TABS.map(({ href, label, icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link
@@ -56,13 +57,16 @@ export function TabBarShell({ children }: { children: React.ReactNode }) {
               href={href}
               aria-current={active ? 'page' : undefined}
               className={
-                'flex min-h-[var(--tap-min)] flex-1 items-center justify-center ' +
+                'flex min-h-[var(--tap-min)] flex-1 flex-col items-center justify-center gap-[var(--space-2)] ' +
                 'rounded-[var(--radius-3xl)] transition-opacity duration-200 ' +
                 'active:opacity-[var(--press-opacity)] ' +
                 (active ? 'text-ink' : 'text-inactive')
               }
               style={{ font: 'var(--type-tab)', letterSpacing: 'var(--tab-ls)' }}
             >
+              {/* The filled silhouette is the whole selection signal — this bar
+                  has no accent colour to spend on one. */}
+              <Icon name={icon} filled={active} size={22} />
               {label}
             </Link>
           );
