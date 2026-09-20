@@ -6,11 +6,20 @@ import { problem, ProblemError } from './problem';
  * Wraps a route handler so every failure leaves as an RFC 9457 problem document
  * rather than Next's default HTML error page. An undocumented error is an outage
  * from the consumer's point of view.
+ *
+ * The handler returns `Response`, not `NextResponse`. `NextResponse` extends it,
+ * so every existing route still type-checks unchanged, and the widening is what
+ * lets a streaming route (`app/api/agent`) return a `ReadableStream` body
+ * through the same wrapper. Those routes still get the pre-stream failure path —
+ * a thrown `ProblemError` before the first byte becomes a problem document
+ * exactly as it does anywhere else; what happens after the headers are sent is
+ * the route's own business, and `app/api/agent/route.ts` documents its in-band
+ * error contract.
  */
 export function withRoute<Args extends unknown[]>(
-  handler: (...args: Args) => Promise<NextResponse>,
+  handler: (...args: Args) => Promise<Response>,
 ) {
-  return async (...args: Args): Promise<NextResponse> => {
+  return async (...args: Args): Promise<Response> => {
     try {
       return await handler(...args);
     } catch (e) {
