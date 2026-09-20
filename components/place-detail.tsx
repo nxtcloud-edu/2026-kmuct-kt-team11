@@ -84,8 +84,12 @@ import type { SavedPlaceDetail, SiblingPlace } from '@/lib/saved-places';
  * exports one, home/deck.tsx keeps its own) — worth consolidating, but not from
  * inside this file: nearby-map is a client module that pulls the whole Naver
  * bundle, so importing it here to save five lines would be a bad trade.
+ *
+ * EXPORTED so the 주변 장소 찾기 screen can be the third consumer rather than the
+ * fourth definition. It imports from here and not from home/ for the reason
+ * above: this module pulls next/image and the icon set, nearby-map pulls Naver.
  */
-const CATEGORY_KO: Record<string, string> = {
+export const CATEGORY_KO: Record<string, string> = {
   cafe: '카페',
   restaurant: '음식점',
   exhibition: '전시',
@@ -112,7 +116,7 @@ const CATEGORY_ICON: Record<string, IconName> = {
  * the venue's own Naver Place page with its hours, photos and reviews — which is
  * the verified counterpart to the caption claim above, one tap away.
  */
-function naverSearchUrl(name: string, address: string | null): string {
+export function naverSearchUrl(name: string, address: string | null): string {
   const q = address ? `${address} ${name}` : name;
   return `https://map.naver.com/p/search/${encodeURIComponent(q)}`;
 }
@@ -364,6 +368,30 @@ export function PlaceDetail({ detail }: { detail: SavedPlaceDetail }) {
           ) : null}
           {place?.address ? <CopyAddressButton address={place.address} /> : null}
         </div>
+      ) : null}
+
+      {/* ── 2b. 주변 장소 찾기 ────────────────────────────────────────────── */}
+      {/* ITS OWN ROW, not a fourth button in the one above. Four controls across
+          a 430px canvas leaves ~92px each and `주변 장소 찾기` does not fit in
+          that; more importantly it is not a peer of the three above it. Those
+          three act on THIS place and resolve instantly. This one opens a
+          different screen, asks a different question, and spends real money
+          when the button on that screen is pressed — so it gets its own line
+          and a label that says where it goes rather than what it does.
+
+          Hidden without an `area`. The search is built around the 동
+          (lib/research/nearby.ts) and a pending row has none; the route 404s in
+          the same state, so this is the same decision rendered rather than a
+          second one. The record's rule: a line with no data behind it is
+          deleted, not disabled. */}
+      {place?.area ? (
+        <Link
+          href={`/saved-places/${saved.id}/nearby`}
+          className={`${ACTION_BASE} ${ACTION_TONE.secondary} w-full`}
+          style={{ font: 'var(--type-button)' }}
+        >
+          주변 장소 찾기
+        </Link>
       ) : null}
 
       {/* ── 3. The creator's claim ───────────────────────────────────────── */}
