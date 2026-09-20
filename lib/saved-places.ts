@@ -158,3 +158,209 @@ export async function listPlacesNearby(area: string, userId: string, limit = 10)
     [area, userId, limit],
   );
 }
+
+/* ── Place detail ─────────────────────────────────────────────────────────── */
+
+/**
+ * ONE ENTRY OF `reels.extracted.places`, for the ordinal a saved place holds.
+ *
+ * This is `PlaceCandidate` (lib/extract/types.ts) reaching a client for the first
+ * time. Until now `extracted` was extractor-internal and deliberately never
+ * serialised — the comment above `serialiseSavedPlace` says so. That still holds
+ * for the LIST: nothing on a list of thirty rows needs a menu. A detail view is
+ * the reason the rule had ("they go on the wire when the extractor gives a client
+ * a reason to read them"), and this is that reason.
+ *
+ * It is a SEPARATE type from `SavedPlace` rather than four more fields on it,
+ * because the provenance is different in kind. Everything on `SavedPlace` is
+ * Gaja's own record of a venue; everything here is A CREATOR'S CLAIM, parsed out
+ * of an Instagram caption. Keeping them in one object would put
+ * `saved.hours_raw` a field access away from `saved.place.address` and invite a
+ * screen to render them as the same sort of fact. They are not, and
+ * `docs/gaja/reel-extraction-findings.md` is explicit: caption hours are "a claim
+ * by a creator, not ground truth". The nesting is the warning.
+ *
+ * NOT added to `lib/api/types.ts` or `docs/gaja/openapi.yaml`: this is a
+ * Server-Component read, not an HTTP response. When a route handler needs it, it
+ * gets mirrored there in the same commit — see that file's header.
+ */
+export type CaptionEntry = {
+  /** 1-based position in the caption, read off the `N.` marker, not the array index. */
+  ordinal: number;
+  /** The romanised alias — `우이그 (UIG)` yields `UIG`. Null when the creator wrote none. */
+  name_alt: string | null;
+  /** The VENUE's own account, without the `@`. Never the creator's — see caption-grammar.ts. */
+  handle: string | null;
+  /** Raw and unparsed, on purpose: `매일 11:00-22:30 금,토 11:00-23:00`. */
+  hours_raw: string | null;
+  /** Raw and unparsed: `티그레 (4,200) 아메리카노 (4,800)`. */
+  menu_raw: string | null;
+};
+
+/** One of the OTHER venues the same reel named, reduced to what a row shows. */
+export type SiblingPlace = {
+  id: string;
+  ordinal: number;
+  /** Null while that sibling is still 'pending' — same reason `SavedPlace.place` is nullable. */
+  name: string | null;
+  area: string | null;
+  category: PlaceCategory | null;
+};
+
+export type SavedPlaceDetail = {
+  saved: SavedPlace;
+  /**
+   * Null for a hand-entered place, for a row whose reel predates extraction, and
+   * for an ordinal the extractor did not name. All three are ordinary.
+   */
+  caption: CaptionEntry | null;
+  /** The reel this came from, or null when the row was not born of one. */
+  reel: {
+    /**
+     * The caption's own lead-in. A LABEL FOR THE SET, never a description of this
+     * venue — `여름 날 카페 고민하지 말고 다녀오세요` tells you nothing about which
+     * ten. Rendered verbatim, emoji included: it is quoted source text, not Gaja's
+     * copy, and the record's no-emoji rule governs the latter.
+     */
+    title: string | null;
+    /** How many venues the caption named. `ordinal` of N — the N. */
+    place_count: number;
+  } | null;
+  /** Ordered by ordinal. Empty for a single-venue reel and for hand-entered rows. */
+  siblings: SiblingPlace[];
+};
+
+/**
+ * `sp.id = $1` is a uuid comparison, and Postgres answers a malformed literal with
+ * 22P02 rather than zero rows. A URL segment is user input, so an unparseable id
+ * has to become "no such place" here instead of a 500 three frames away.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The row shape of the second query. `extracted` arrives from pg already parsed. */
+type ReelExtras = {
+  ordinal: number | null;
+  title: unknown;
+  places: unknown;
+};
+
+/**
+ * Everything the place-detail view renders, for one saved place.
+ *
+ * VISIBILITY IS IN THE WHERE CLAUSE, not in a check after the fact, and it is the
+ * same predicate `listSavedPlacesForUser` uses: your own rows plus the rows of
+ * groups you are in. A row you may not see returns null and the caller renders
+ * not-found — never a 403, which would confirm the id exists to someone who
+ * guessed it. That is the same posture as the route handler's `authorise`.
+ *
+ * THREE QUERIES, DELIBERATELY. `SAVED_PLACE_SELECT` may not be widened — two call
+ * sites re-point it at a CTE by string replacement and its column list is
+ * load-bearing — so the reel's extras and the sibling list are their own reads.
+ * A detail page is one row and one render; three round trips is the honest cost
+ * of not making that select do a fourth job.
+ */
+export async function getSavedPlaceDetailForUser(
+  savedPlaceId: string,
+  userId: string,
+): Promise<SavedPlaceDetail | null> {
+  if (!UUID.test(savedPlaceId)) return null;
+
+  const row = await queryOne<SavedPlaceRow>(
+    `${SAVED_PLACE_SELECT}
+      where sp.id = $1
+        and (sp.user_id = $2
+             or sp.group_id in (select group_id from group_members where user_id = $2))
+        and sp.status <> 'rejected'`,
+    [savedPlaceId, userId],
+  );
+  if (!row) return null;
+
+  const saved = serialiseSavedPlace(row);
+
+  const extras = await queryOne<ReelExtras>(
+    `select sp.ordinal,
+            r.extracted -> 'title'  as title,
+            r.extracted -> 'places' as places
+       from saved_places sp
+       join reels r on r.id = sp.reel_id
+      where sp.id = $1`,
+    [savedPlaceId],
+  );
+
+  // The siblings of a GROUP-SHARED row belong to whoever shared the reel, so the
+  // viewer's own visibility predicate is applied again here rather than assumed
+  // from the parent. Without it a sibling could render as a link that 404s on tap.
+  const siblings = extras
+    ? await query<{
+        id: string;
+        ordinal: number;
+        name: string | null;
+        area: string | null;
+        category: string | null;
+      }>(
+        `select s.id, s.ordinal, p.name, p.area, p.category
+           from saved_places me
+           join saved_places s on s.reel_id = me.reel_id and s.id <> me.id
+           left join places p on p.id = s.place_id
+          where me.id = $1
+            and me.reel_id is not null
+            and s.ordinal is not null
+            and s.status <> 'rejected'
+            and (s.user_id = $2
+                 or s.group_id in (select group_id from group_members where user_id = $2))
+          order by s.ordinal`,
+        [savedPlaceId, userId],
+      )
+    : [];
+
+  return {
+    saved,
+    caption: captionEntry(extras),
+    reel: extras
+      ? {
+          title: typeof extras.title === 'string' ? extras.title : null,
+          place_count: Array.isArray(extras.places) ? extras.places.length : 0,
+        }
+      : null,
+    siblings: siblings.map((s) => ({
+      id: s.id,
+      ordinal: s.ordinal,
+      name: s.name,
+      area: s.area,
+      category: s.category as PlaceCategory | null,
+    })),
+  };
+}
+
+/**
+ * Pick this row's entry out of the caption's list.
+ *
+ * MATCHED ON `ordinal`, NEVER ON ARRAY POSITION. The two differ the moment one
+ * entry fails to parse, and `saved_places.ordinal` is the creator's number — the
+ * same number `saved_places_reel_ordinal_idx` makes unique. Indexing by position
+ * would silently attach venue 4's opening hours to venue 3's card, which is
+ * exactly the class of error the honesty framing around these fields exists to
+ * prevent.
+ *
+ * `extracted` is jsonb, so it is `unknown` at the type level however carefully our
+ * own extractor writes it — a column written by one version of the code is read
+ * by every later one. Narrowed field by field rather than cast.
+ */
+function captionEntry(extras: ReelExtras | null): CaptionEntry | null {
+  if (!extras || extras.ordinal === null || !Array.isArray(extras.places)) return null;
+
+  const hit = (extras.places as unknown[]).find(
+    (p): p is Record<string, unknown> =>
+      typeof p === 'object' && p !== null && (p as { ordinal?: unknown }).ordinal === extras.ordinal,
+  );
+  if (!hit) return null;
+
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v : null);
+  return {
+    ordinal: extras.ordinal,
+    name_alt: str(hit.name_alt),
+    handle: str(hit.handle),
+    hours_raw: str(hit.hours_raw),
+    menu_raw: str(hit.menu_raw),
+  };
+}
