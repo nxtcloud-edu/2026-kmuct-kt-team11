@@ -9,6 +9,9 @@ export type SavedPlaceRow = {
   status: string;
   confirmed: boolean;
   hook: string | null;
+  // Joined from `reels`, not a column on `saved_places` — the reel moved to its own
+  // table in 20260920000005 so one reel can produce many saved places. Null for
+  // hand-entered rows (no reel) and for reels shared without a URL.
   source_url: string | null;
   saved_at: Date;
   place_id: string | null;
@@ -21,21 +24,30 @@ export type SavedPlaceRow = {
   place_area: string | null;
 };
 
+/**
+ * The join list is load-bearing beyond the columns it names: two call sites
+ * re-point this select at a CTE with `.replace('from saved_places sp', 'from ins sp')`,
+ * so the `from` clause must stay on its own line and every join must follow it.
+ * Put nothing between `select` and `from` that names `saved_places` by table name.
+ */
 export const SAVED_PLACE_SELECT = `
-  select sp.id, sp.user_id, sp.group_id, sp.status, sp.confirmed, sp.hook, sp.source_url, sp.saved_at,
+  select sp.id, sp.user_id, sp.group_id, sp.status, sp.confirmed, sp.hook, sp.saved_at,
+         r.source_url as source_url,
          p.id as place_id, p.name as place_name, p.name_alt as place_name_alt,
          p.category as place_category, p.lat as place_lat, p.lng as place_lng,
          p.address as place_address, p.area as place_area
     from saved_places sp
-    left join places p on p.id = sp.place_id`;
+    left join places p on p.id = sp.place_id
+    left join reels r on r.id = sp.reel_id`;
 
 /**
  * `place` is null while status is 'pending' — the row exists before resolution by design
  * (spec §5.2). Slice 1 never produces a pending row, but the client handles null from the
  * start so slice 3 does not require a client rewrite.
  *
- * `extracted` and `raw_caption` are deliberately never returned: extractor internals with
- * no client use.
+ * `extracted` and `raw_caption` live on `reels` now and are still deliberately never
+ * returned: extractor internals with no client use. `reel_id` and `ordinal` are not
+ * returned either — they are database-only until something consumes them.
  *
  * The `SavedPlace` return annotation is load-bearing: `lib/api/types.ts` mirrors
  * openapi.yaml by hand, so this is what makes tsc catch the two drifting apart.

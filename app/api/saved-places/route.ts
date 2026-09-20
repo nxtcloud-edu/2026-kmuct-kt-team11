@@ -64,8 +64,17 @@ export const POST = withRoute(async (req: Request) => {
 
   return withIdempotency(req.headers.get('Idempotency-Key'), user.id, raw, async () => {
     // Slice 1 has no extractor, so a hand-entered row is born resolved rather than
-    // pending. reel_video_id stays null — see the partial unique index in the migration
-    // for why that does not make duplicates possible.
+    // pending. `reel_id` and `ordinal` stay null — there is no reel to be second in —
+    // and `saved_places_no_duplicate_idx` is what stops two hand-entered saves of the
+    // same place, not the reel constraint that 20260920000005 removed.
+    //
+    // The `.replace` below re-points SAVED_PLACE_SELECT's `from` clause at this CTE so
+    // the insert and the read-back are one round trip without a second copy of the
+    // select list. It survives the `left join reels` that 20260920000005 added: the
+    // replace only rewrites the `from` line, and both joins follow it untouched — `ins`
+    // carries `reel_id` (null here) from `returning *`, so `r.source_url` resolves to
+    // null exactly as a hand-entered row should. It stays fragile, which is why
+    // SAVED_PLACE_SELECT now says in a comment what a change to it must not break.
     const created = await queryOne<SavedPlaceRow>(
       `with ins as (
          insert into saved_places (user_id, group_id, place_id, hook, status, confirmed)
