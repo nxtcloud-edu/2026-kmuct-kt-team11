@@ -123,6 +123,19 @@ export default async function HomePage() {
           confirmation that it arrived. */}
       <IngestStatusCard initial={ingest} />
 
+      {/* THE SECOND WAY IN, and the reason it is a line of text rather than a
+          button: sharing a reel to the account is the primary path, and pasting
+          a URL is what you do when that path is not available to you. A filled
+          control here would compete with the deck for the screen's one action.
+          Its own route, not a tab — the tab bar's five pills are its ceiling. */}
+      <Link
+        href="/add"
+        className="mt-[var(--section-gap)] inline-flex min-h-[var(--tap-min)] items-center text-ink"
+        style={{ font: 'var(--type-meta)' }}
+      >
+        릴스 주소로 저장하기 ›
+      </Link>
+
       {/* Still one line rather than a designed empty screen — but no longer a
           dead end, because the events section below it is now the thing to do.
           The second half is written only when there is actually something down

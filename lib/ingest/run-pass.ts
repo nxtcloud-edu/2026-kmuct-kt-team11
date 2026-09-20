@@ -18,6 +18,16 @@
  *      models, deliberately with no transaction open.
  *   5. `finishReel`         — the extraction and the venues, in one transaction.
  *
+ * STAGES 3 TO 5 ARE NO LONGER IN THIS FILE. They are `ingestClip` in
+ * lib/ingest/ingest-clip.ts, and they moved there on the same rule that moved
+ * this function out of a route handler: a second caller appeared. `POST
+ * /api/reels` saves a reel a person pasted the link of, and it has to claim,
+ * analyse and finish exactly as this does — so neither of them owns that code.
+ * What is left here is the POLLER's own half: the breaker, the source, the
+ * sender routing, the cursor and this summary. The notes below on stages 3–5
+ * describe code that now lives next door; they are kept because they explain why
+ * the pass is shaped the way it is, and the two files say the same thing.
+ *
  * Stage 3 exists for the user, not for the database. The analysis costs a video
  * download, a model call and ~10 sequential geocodes, so a reel is in flight for
  * ten-odd seconds; claiming it first means app/(app)/home/ingest-status.tsx can
@@ -38,9 +48,7 @@
  * tripped breaker is cleared by a human with a SQL statement and by nothing else.
  */
 
-import type { PlaceCategory } from '../api/types';
-import { runLadder } from '../extract/ladder';
-import { placeIdsByOrdinal, resolvePlaceCandidates } from '../research/resolve-place';
+import { ingestClip } from './ingest-clip';
 import type { InboxSource } from './inbox/index';
 import {
   DEFAULT_MIN_INTERVAL_MS,
@@ -49,9 +57,7 @@ import {
   InstagramPollSource,
 } from './inbox/instagram-poll';
 import { resolveSenderToUser } from './route-sender';
-import { claimReel, finishReel, markReelFailed } from './save-reel';
 import { INSTAGRAM_POLL_SOURCE, getIngestState, markError, markOk } from './state';
-import { captureReelThumbnail } from './thumbnail';
 
 export type IngestPassSummary = {
   source: string;
@@ -101,53 +107,6 @@ export type RunIngestPassOptions = {
    */
   minIntervalMs?: number;
 };
-
-/**
- * The fallback category for a reel whose extractor could not classify a venue.
- *
- * A LAST RESORT, and a narrow one. `PlaceCandidate.category` is the real answer
- * — the extractor classifies each venue with its own confidence — and this only
- * covers the entries it returned nothing for. `places.category` is NOT NULL with
- * a CHECK, so the choice for those is between a title's evidence and no row at
- * all; `여름 날에 다녀오기 좋은 카페 10곳` does actually say cafe, and a reel titled
- * `서울에서 꼭 가봐야 할 10곳` says nothing and gets null.
- *
- * Deliberately conservative. Every pattern here is a word that names a KIND of
- * place, never a word that merely co-occurs with one: `아메리카노` in a caption
- * does not make a venue a café, it makes it a place that sells coffee, and a
- * bakery, a bookshop and a gallery all do. A wrong category is a fact in a column
- * that reads as true; a null one costs a review.
- */
-const TITLE_CATEGORIES: ReadonlyArray<readonly [RegExp, PlaceCategory]> = [
-  [/전시|갤러리|미술관|박물관|팝업\s*스토어|exhibition/i, 'exhibition'],
-  [/소품샵|편집샵|서점|책방|문구점|shop/i, 'shop'],
-  [/클래스|공방|원데이|체험|액티비티|activity/i, 'activity'],
-  [/카페|커피|coffee|caf[eé]|베이커리|디저트|빵집/i, 'cafe'],
-  [/맛집|식당|밥집|restaurant|한식|일식|중식|양식|이자카야|포차|술집/i, 'restaurant'],
-];
-
-export function categoryFromTitle(title: string | null): PlaceCategory | null {
-  if (!title) return null;
-  for (const [pattern, category] of TITLE_CATEGORIES) if (pattern.test(title)) return category;
-  return null;
-}
-
-/**
- * A caption's lead-in: its first non-empty line, and only that.
- *
- * The same thing `captionTitle` in lib/extract/caption-grammar.ts reads, and it
- * is here for the case that one returns nothing — a caption with no numbered
- * entries has no title by that parser's rule, but it still has a first line, and
- * the first line is where a creator writes what the reel is about.
- */
-function leadIn(caption: string | null): string | null {
-  if (!caption) return null;
-  for (const line of caption.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed) return trimmed;
-  }
-  return null;
-}
 
 /**
  * Run one pass. Throws `InboxBreakerTrippedError` when the breaker is up, so
@@ -231,114 +190,30 @@ export async function runIngestPass(
       }
       summary.routed++;
 
-      // ── 3. CLAIM ────────────────────────────────────────────────────────────
-      // The row exists from here on, `status = 'pending'`, and the home screen
-      // can see it. A reel shared without a caption still gets one: the caption
-      // is where the places live, but the reel was genuinely shared, and dropping
-      // it would hide that from the person who shared it.
-      const claim = await claimReel({
-        userId: routed.userId,
-        reelVideoId: clip.reelVideoId,
-        sourceUrl: clip.sourceUrl,
-        rawCaption: clip.caption,
-      });
+      // ── 3, 4 AND 5, IN lib/ingest/ingest-clip.ts ───────────────────────────
+      //
+      // Claim, ladder, geocode, finish, cover frame — shared verbatim with
+      // `POST /api/reels`, which saves a reel a person pasted the link of. The
+      // stages and the reasons they are in that order are documented there; this
+      // loop keeps only what is the POLLER's own: routing, the cursor, and these
+      // counters. Two callers, one definition of what a saved reel is.
+      //
+      // It throws when the analysis does not land, having already moved the row
+      // off `pending` — the outer catch below counts it and stops the cursor.
+      const outcome = await ingestClip(routed.userId, clip);
 
-      // A redelivery of a reel that was already ANALYSED is an ack and nothing
-      // more. One that is still 'pending' or that ended 'failed' has no venues —
-      // `finishReel` writes the status and the saved_places in one transaction —
-      // so the analysis is re-run rather than left stuck forever. That is the
-      // only thing that recovers a pass killed halfway.
-      if (claim.alreadyExisted && claim.status !== 'pending' && claim.status !== 'failed') {
+      if (outcome.alreadySaved) {
         summary.already_existed++;
         processedThrough = clip.sharedAt;
         continue;
       }
 
-      try {
-        // ── 4. ANALYSE. No transaction is open across any of this. ────────────
-        //
-        // The ladder, not a bare caption call: rung one is the caption and rung
-        // two hands the reel's mp4 to Gemini for speech AND burned-in on-screen
-        // text in one call. `clip.video` is a signed CDN link with an `oe=`
-        // expiry and is spent HERE, while it is alive — it is never stored, and
-        // a design that transcribed lazily would return 403 for anything shared
-        // last week. The ladder never throws for a rung failure; a model timeout
-        // on rung one is recorded in `rungs` and the climb continues.
-        const extraction = await runLadder({ caption: clip.caption, video: clip.video });
-        if (extraction.decided_by === 'video') summary.decided_by_video++;
-
-        // Geocode each candidate and find-or-create its `places` row. The
-        // category comes from the candidate itself when the extractor was
-        // confident, and falls back to the reel's title when it was not — see
-        // `categoryFromTitle` and lib/research/resolve-place.ts.
-        const resolved =
-          extraction.places.length > 0
-            ? await resolvePlaceCandidates(extraction.places, {
-                // The TITLE, or failing that the caption's first line — which is
-                // what a title is. Never the whole caption: a 1,200-character
-                // listicle that mentions 카페 once in a venue's description would
-                // make every venue in it a café, and this is the value that ends
-                // up in a NOT NULL column reading as a fact.
-                category: categoryFromTitle(extraction.title ?? leadIn(clip.caption)),
-              })
-            : [];
-        const placeIds = placeIdsByOrdinal(resolved);
-        summary.places_resolved += placeIds.size;
-        summary.places_unresolved += resolved.length - placeIds.size;
-
-        // ── 5. FINISH. One transaction: the extraction and every venue. ───────
-        await finishReel({
-          reelId: claim.reelId,
-          userId: routed.userId,
-          extraction,
-          placeIds,
-        });
-        summary.saved++;
-      } catch (e) {
-        // The reel is claimed and the analysis did not land. Move it off
-        // 'pending' so the home screen stops saying `분석 중` about it, then
-        // rethrow into the outer catch, which counts it and stops the cursor.
-        // The row stays, `failed`, with its caption — a later pass re-reads the
-        // clip and re-analyses it, because `claim.status === 'failed'` is
-        // explicitly not an ack above.
-        //
-        // Its own try, so that a database that is itself unreachable does not
-        // replace the error that explains what actually broke. The original is
-        // the one worth keeping; a row left on `pending` ages out of the home
-        // screen's window on its own (lib/ingest/status.ts).
-        try {
-          await markReelFailed(claim.reelId);
-        } catch (marking) {
-          console.error(`[ingest] clip ${clip.reelVideoId} could not be marked failed:`, marking);
-        }
-        throw e;
-      }
-
-      // THE COVER FRAME, AFTER THE COMMIT AND OUTSIDE THE TRY THAT MATTERS.
-      //
-      // `finishReel` does not take a thumbnail and must not: it holds one pooled
-      // client for the whole transaction, and this is a download plus an upload.
-      // Same seam as `placeIds` — the networked, failable step happens outside,
-      // and the write path stays un-killable by a remote host.
-      if (clip.thumb) {
-        // Its own try, and a deliberately narrow one. A thumbnail failure must
-        // never reach the outer catch, because the outer catch stops the cursor
-        // and re-reads this clip forever — an expired candidate URL would pin
-        // the whole pipeline on one reel while the reel itself sat saved and
-        // complete in the database.
-        try {
-          const shot = await captureReelThumbnail(claim.reelId, clip.thumb);
-          if (shot.ok) summary.thumbs_captured++;
-          else {
-            summary.thumbs_failed++;
-            // The reason is a short tag written by us, never a URL or a body.
-            console.warn(`[ingest] clip ${clip.reelVideoId} thumbnail skipped: ${shot.reason}`);
-          }
-        } catch (e) {
-          summary.thumbs_failed++;
-          console.warn(`[ingest] clip ${clip.reelVideoId} thumbnail threw:`, e);
-        }
-      }
+      summary.saved++;
+      if (outcome.decidedByVideo) summary.decided_by_video++;
+      summary.places_resolved += outcome.resolved;
+      summary.places_unresolved += outcome.extracted - outcome.resolved;
+      if (outcome.thumb === 'captured') summary.thumbs_captured++;
+      else if (outcome.thumb === 'failed') summary.thumbs_failed++;
 
       processedThrough = clip.sharedAt;
     } catch (e) {

@@ -15,6 +15,16 @@
  * Tuesday. The rule this file follows: an unrecognised item is skipped, never
  * guessed at and never thrown over, because one malformed item in a thread must
  * not cost us the other nine.
+ *
+ * THERE IS A SECOND CALLER. `readMedia` below is exported for
+ * lib/ingest/paste/instagram-media.ts, which fetches one media by shortcode from
+ * `GET /api/v1/media/{pk}/info/` and gets back `items[0]` — verified 2026-09-20
+ * to be the SAME media object this file reads out of a DM, with `code`,
+ * `caption.text`, `video_versions` and `image_versions2` all present and all the
+ * same shape. That is why the paste feature is a second source and not a second
+ * pipeline: one definition of how an Instagram media object becomes a reel, used
+ * by both, so the two can never disagree about which cover frame to keep or how
+ * much of a caption counts.
  */
 
 import type { InboxClip, InboxThumb, InboxVideo } from './index';
@@ -222,6 +232,69 @@ function videoOf(media: Json): InboxVideo | null {
   return null;
 }
 
+/**
+ * One Instagram media object, read into the five fields a reel is made of.
+ *
+ * THE SHARED DEFINITION, and the only place the five reads live. A reel that
+ * arrives as a DM and the same reel fetched by its shortcode go through this
+ * function, so they cannot end up with different captions, different cover
+ * frames or different ids — which matters because `reels.reel_video_id` is what
+ * `unique (user_id, reel_video_id)` dedupes on. If the two paths disagreed about
+ * whether the id is the shortcode or the pk, the same reel saved twice would be
+ * two rows.
+ *
+ * Null when the object carries neither a `code` nor a `pk` — there is then
+ * nothing to key the reel by, and a reel with no stable id cannot be deduped and
+ * must not be written.
+ *
+ * Takes the MEDIA, not the DM item that wraps it. Unwrapping `item.clip.clip` is
+ * the inbox payload's problem and stays in `mediaOf`.
+ */
+export function readMedia(value: unknown): Omit<InboxClip, 'igsid' | 'sharedAt'> | null {
+  const media = obj(value);
+  if (!media) return null;
+
+  // Shortcode first: it is what a permalink is built from, what a human can
+  // paste into a browser to check a row, and what a support conversation will
+  // quote. The pk is the fallback for a payload that omits it.
+  const code = str(media.code);
+  const reelVideoId = code ?? str(media.pk);
+  if (!reelVideoId) return null;
+
+  return {
+    reelVideoId,
+    sourceUrl: code ? `https://www.instagram.com/reel/${code}/` : null,
+    caption: captionOf(media),
+    thumb: thumbOf(media),
+    video: videoOf(media),
+  };
+}
+
+/**
+ * Is this media a reel, rather than a photo post?
+ *
+ * `product_type: 'clips'` is Instagram's own answer and is what the observed
+ * payload carries for a reel; `media_type: 2` means video. Either one is taken
+ * as a yes, because this is a gate on a user's paste and the cost of the two
+ * errors is not symmetric — refusing a real reel because a field was renamed
+ * strands the user with a link that works in their browser, while letting a
+ * video post through costs nothing at all: it has a caption and the same
+ * extractor reads it.
+ *
+ * `video_versions` is the last resort and the most honest signal of the three:
+ * if there is an mp4, there is something the ladder's video rung can read.
+ *
+ * Exported for the paste source, which is the only caller — a DM item is already
+ * filtered by `item_type === 'clip'` upstream and never reaches this.
+ */
+export function isReelMedia(value: unknown): boolean {
+  const media = obj(value);
+  if (!media) return false;
+  if (str(media.product_type) === 'clips') return true;
+  if (media.media_type === 2) return true;
+  return videoOf(media) !== null;
+}
+
 export type ParseOptions = {
   /**
    * `IG_DS_USER_ID` — the polling account's own id. Items it authored are its
@@ -273,22 +346,13 @@ export function parseInboxClips(payload: unknown, opts: ParseOptions): InboxClip
       const media = mediaOf(item);
       if (!media) continue;
 
-      // Shortcode first: it is what a permalink is built from, what a human can
-      // paste into a browser to check a row, and what a support conversation
-      // will quote. The pk is the fallback for a payload that omits it.
-      const code = str(media.code);
-      const reelVideoId = code ?? str(media.pk);
-      if (!reelVideoId) continue;
+      // The five fields, read by the shared definition above rather than here.
+      // A media with no id at all is skipped, on this file's standing rule: one
+      // malformed item must not cost the other nine.
+      const payload = readMedia(media);
+      if (!payload) continue;
 
-      out.push({
-        igsid: sender,
-        reelVideoId,
-        sourceUrl: code ? `https://www.instagram.com/reel/${code}/` : null,
-        caption: captionOf(media),
-        thumb: thumbOf(media),
-        video: videoOf(media),
-        sharedAt,
-      });
+      out.push({ igsid: sender, ...payload, sharedAt });
     }
   }
 
