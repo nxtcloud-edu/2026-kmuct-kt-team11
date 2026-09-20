@@ -43,7 +43,42 @@ export type CaptionBlock = {
  * date from opening a phantom entry. Two digits is the ceiling: these are
  * listicles, and `2026.` should not read as entry 20.
  */
-const BLOCK_START = /^[ \t]*(\d{1,2})[ \t]*[.)][ \t]*/gm;
+const BLOCK_START =
+  /^[ \t]*(?:(\d{1,2})[ \t]*[.)]|([\u2460-\u2473\u2776-\u277F\u278A-\u2793]))[ \t]*/gm;
+
+/**
+ * CIRCLED NUMERALS COUNT AS NUMBERING, and leaving them out was a real defect
+ * rather than a missing nicety.
+ *
+ * A caption reading `❶ 터방내 / 📍서울 동작구 흑석로 101-7` numbers eight venues and
+ * gives all eight an address, but `❶` is not `1.`, so `countNumberedBlocks`
+ * returned 0. The Gemini path cross-checks its own count against that number and
+ * drops to `'low'` when they disagree — so a perfectly extracted caption was
+ * scored as a failure. In the ladder that `'low'` then lost to a `'medium'`
+ * transcript of the on-screen text, which carries names and no addresses, and
+ * eight geocodable venues became eight unpinnable ones.
+ *
+ * Three ranges, because creators use all three and a reader cannot tell them
+ * apart: ① U+2460-2473 (1-20), ❶ U+2776-277F (1-10), ➊ U+278A-2793 (1-10).
+ * No separator is required after them — `❶ 터방내` has none and `❶.` is unusual —
+ * which is safe precisely because these characters do not occur in prices,
+ * dates or addresses, the strings the ASCII branch has to defend against with
+ * its mandatory `.` or `)`.
+ */
+const CIRCLED_RANGES: [number, number, number][] = [
+  [0x2460, 0x2473, 1], // ①-⑳
+  [0x2776, 0x277f, 1], // ❶-❿
+  [0x278a, 0x2793, 1], // ➊-➓
+];
+
+function circledValue(ch: string): number | null {
+  const code = ch.codePointAt(0);
+  if (code === undefined) return null;
+  for (const [lo, hi, base] of CIRCLED_RANGES) {
+    if (code >= lo && code <= hi) return code - lo + base;
+  }
+  return null;
+}
 
 /**
  * Marker sets, widened slightly past the one observed caption.
@@ -106,9 +141,22 @@ export function splitNumberedBlocks(caption: string): CaptionBlock[] {
   BLOCK_START.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = BLOCK_START.exec(caption)) !== null) {
-    const ordinal = Number(m[1]);
+    // `m[1]` is the ASCII branch, `m[2]` the circled one; exactly one matches.
+    const ordinal = m[1] !== undefined ? Number(m[1]) : (circledValue(m[2]) ?? 0);
+    if (ordinal === 0) continue;
     const previous = starts[starts.length - 1];
-    if (previous && ordinal <= previous.ordinal) continue;
+    // A REPEATED ordinal opens a new block; a DECREASING one does not.
+    //
+    // The rule used to be strictly increasing, to stop a menu numbered inside an
+    // entry from folding into the venue sequence. That still holds — an inner
+    // `1.` after an outer `3.` decreases and is still skipped. What it also did
+    // was drop a real entry when the creator miscounted: reel DTafJINEnWW marks
+    // its eighth 다방 `❼` for the second time rather than `❽`, so eight venues
+    // were counted as seven and the model's correct eight was graded a
+    // disagreement. Admitting equality costs only the case where a nested list
+    // repeats its parent's exact number at the start of a line, which no caption
+    // observed so far does.
+    if (previous && ordinal < previous.ordinal) continue;
     starts.push({ ordinal, from: m.index, bodyFrom: m.index + m[0].length });
   }
 

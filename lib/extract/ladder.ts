@@ -152,6 +152,67 @@ function better(a: CaptionExtraction, b: CaptionExtraction): CaptionExtraction {
   return a.places.length >= b.places.length ? a : b;
 }
 
+/**
+ * Fill the winner's empty fields from the rung that lost.
+ *
+ * WHY THIS EXISTS. Reel DTafJINEnWW numbered eight 다방 and printed a street
+ * address under every one. The caption rung read all eight with their addresses;
+ * the video rung read the same eight off the on-screen text, which shows names
+ * and nothing else. The video result scored `medium`, the caption's `low`, so
+ * `better()` picked the video's — and all eight addresses were discarded. Every
+ * venue landed unresolvable, and three accounts got twenty-four saved places
+ * with no map pin between them.
+ *
+ * Choosing a winner was the wrong shape for this. The two rungs are not rival
+ * accounts of the same thing: one reads what the creator WROTE, the other what
+ * the video SHOWS, and each knows things the other cannot. Confidence answers
+ * "did we find the right number of venues", which is exactly the question the
+ * transcript is better at and says nothing about the detail the caption holds.
+ *
+ * So the winner keeps its identity, its ordering and its confidence, and only
+ * its NULLS are filled. Nothing already present is overwritten — a field the
+ * winning rung asserted is never replaced by the loser's version of it, so this
+ * cannot turn a good answer into a worse one.
+ *
+ * THE MATCH IS DELIBERATELY CONSERVATIVE, because a wrong address is worse than
+ * no address: it sends someone to the wrong building. A donor matches only when
+ * the ordinal is identical AND the folded names are compatible — equal, or one
+ * contained in the other, which is what covers `The Old(디올드)` against `디올드`.
+ * Anything else is left null.
+ */
+const ENRICHABLE = ['address', 'hours_raw', 'menu_raw', 'handle', 'name_alt'] as const;
+
+function foldName(s: string): string {
+  return s.normalize('NFC').replace(/[\s()[\]]/g, '').toLowerCase();
+}
+
+function enrich(winner: CaptionExtraction, donor: CaptionExtraction): CaptionExtraction {
+  if (donor.places.length === 0) return winner;
+
+  const byOrdinal = new Map(donor.places.map((p) => [p.ordinal, p]));
+  let filled = 0;
+
+  const places = winner.places.map((w) => {
+    const d = byOrdinal.get(w.ordinal);
+    if (!d) return w;
+
+    const a = foldName(w.name);
+    const b = foldName(d.name);
+    if (a !== b && !a.includes(b) && !b.includes(a)) return w;
+
+    const merged = { ...w };
+    for (const key of ENRICHABLE) {
+      if (merged[key] === null && d[key] !== null) {
+        merged[key] = d[key];
+        filled++;
+      }
+    }
+    return merged;
+  });
+
+  return filled === 0 ? winner : { ...winner, places };
+}
+
 const EMPTY: CaptionExtraction = { places: [], title: null, confidence: 'low', model: 'ladder', ms: 0 };
 
 /**
@@ -268,10 +329,14 @@ export async function runLadder(input: LadderInput, deps: LadderDeps = {}): Prom
     // band — which is a higher bar than the video's. Taking the video result
     // unconditionally here would throw away a three-venue low-confidence caption
     // for a one-venue low-confidence transcript.
-    const winner = captionResult ? better(captionResult, videoResult) : videoResult;
+    const picked = captionResult ? better(captionResult, videoResult) : videoResult;
+    // The loser is not discarded, only outranked. See `enrich` — the rung that
+    // lost on confidence routinely holds the addresses that make a venue
+    // mappable, and throwing them away was costing every pin on the reel.
+    const winner = captionResult && videoResult ? enrich(picked, picked === captionResult ? videoResult : captionResult) : picked;
     return {
       ...winner,
-      decided_by: winner === videoResult ? 'video' : 'caption',
+      decided_by: picked === videoResult ? 'video' : 'caption',
       rungs: { caption: captionRung, video: videoRung },
     };
   }
@@ -280,7 +345,14 @@ export async function runLadder(input: LadderInput, deps: LadderDeps = {}): Prom
   // are still worth writing, they are just not worth trusting, and `decided_by:
   // 'none'` plus a `'low'` confidence is what routes the reel to needs_review in
   // lib/ingest/save-reel.ts rather than to a user's saved list.
-  const fallback = captionResult && videoResult ? better(captionResult, videoResult) : (captionResult ?? videoResult ?? EMPTY);
+  const best = captionResult && videoResult ? better(captionResult, videoResult) : (captionResult ?? videoResult ?? EMPTY);
+  // Same merge on the untrusted path. These candidates go to `needs_review`
+  // rather than to a saved list, and a human reviewing them is helped rather
+  // than harmed by the address the other rung managed to read.
+  const fallback =
+    captionResult && videoResult
+      ? enrich(best, best === captionResult ? videoResult : captionResult)
+      : best;
 
   return {
     ...fallback,
