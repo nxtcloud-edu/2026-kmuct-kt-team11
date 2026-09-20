@@ -1,0 +1,210 @@
+{
+  "fixtureId": "taste-c-activity",
+  "note": "합성 데이터입니다. 실제 상호·가격이 아니며 프롬프트 회귀 테스트 용도로만 사용합니다.",
+  "description": "체험·액티비티 중심 취향. 앉아서 먹고 마시는 코스보다 몸을 쓰는 경험을 선호한다. 후보군에 저녁 시간 제약이 걸린 장소가 많아 scheduleRigidity 축의 시간표 처리 능력을 검증한다.",
+  "user": {
+    "mbti": "{{INJECTED}}",
+    "tasteVectorConfidence": "medium",
+    "tasteVector": {
+      "categories": {
+        "activity_experience": 0.86,
+        "travel_attraction": 0.7,
+        "restaurant": 0.5,
+        "cafe_dessert": 0.33,
+        "culture_exhibition": 0.45
+      },
+      "features": {
+        "access": 0.72,
+        "atmosphere": 0.4,
+        "view_photo": 0.55,
+        "value": 0.5,
+        "operation": 0.6
+      },
+      "audiences": ["couple", "local_explorer"],
+      "evidence": [
+        { "tag": "원데이클래스", "sourceVideoId": "rl_5c09", "count": 4 },
+        { "tag": "이색데이트", "sourceVideoId": "rl_5c09", "count": 3 },
+        { "tag": "액티비티", "sourceVideoId": "tk_a212", "count": 3 },
+        { "tag": "홍대핫플", "sourceVideoId": "rl_77e4", "count": 2 },
+        { "tag": "체험", "sourceVideoId": "tk_a212", "count": 2 },
+        { "tag": "연남동", "sourceVideoId": "rl_77e4", "count": 2 }
+      ]
+    },
+    "constraints": {
+      "region": "연남",
+      "date": "2026-09-26",
+      "timeRange": "13:00-21:00",
+      "budgetPerPerson": 70000
+    }
+  },
+  "similarUsers": { "cohortSize": 254, "similarity": 0.69 },
+  "candidatePlaces": [
+    {
+      "placeId": "pl_c01",
+      "title": "연남 실내 클라이밍",
+      "category": "activity_experience",
+      "subcategory": "액티비티",
+      "location": { "name": "연남동", "address": null, "nearestStation": "홍대입구", "regionTags": ["연남", "홍대"] },
+      "price": { "amounts": [25000], "perPerson": 25000, "priceLevel": "mid", "discount": null },
+      "features": ["액티비티", "이색", "역세권", "시끌벅적"],
+      "normalizedHashtags": ["클라이밍", "이색데이트", "액티비티"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "주말 20분", "accessibility": null },
+      "openingHours": "10:00-23:00",
+      "cautions": ["운동복 대여 별도 비용"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.72, "cohortRank": 1 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#연남클라이밍" }]
+    },
+    {
+      "placeId": "pl_c02",
+      "title": "도자기 원데이클래스",
+      "category": "activity_experience",
+      "subcategory": "공방",
+      "location": { "name": "연남동 골목", "address": null, "nearestStation": "홍대입구", "regionTags": ["연남"] },
+      "price": { "amounts": [42000], "perPerson": 42000, "priceLevel": "high", "discount": null },
+      "features": ["원데이클래스", "조용한", "프라이빗", "아늑한"],
+      "normalizedHashtags": ["원데이클래스", "공방", "이색데이트"],
+      "constraints": { "parking": "불가", "reservation": "예약 필수", "waiting": "없음", "accessibility": null },
+      "openingHours": "11:00-19:00",
+      "cautions": ["당일 예약 불가", "19시 종료"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.63, "cohortRank": 3 },
+      "sourceEvidence": [{ "source": "transcript", "text": "둘이 하나씩 만들어서 가져갈 수 있어요" }]
+    },
+    {
+      "placeId": "pl_c03",
+      "title": "경의선숲길 자전거 코스",
+      "category": "travel_attraction",
+      "subcategory": "산책",
+      "location": { "name": "경의선숲길", "address": null, "nearestStation": "홍대입구", "regionTags": ["연남"] },
+      "price": { "amounts": [], "perPerson": 0, "priceLevel": "free", "discount": null },
+      "features": ["도보", "산책", "노을", "힐링"],
+      "normalizedHashtags": ["경의선숲길", "연남동", "산책코스"],
+      "constraints": { "parking": "불가", "reservation": "불필요", "waiting": "없음", "accessibility": "휠체어 가능" },
+      "openingHours": "24시간",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.58, "cohortRank": 5 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#연남동산책" }]
+    },
+    {
+      "placeId": "pl_c04",
+      "title": "연남 대형 브런치 식당",
+      "category": "restaurant",
+      "subcategory": "브런치",
+      "location": { "name": "연남동", "address": null, "nearestStation": "홍대입구", "regionTags": ["연남"] },
+      "price": { "amounts": [23000], "perPerson": 23000, "priceLevel": "mid", "discount": null },
+      "features": ["핫플", "내돈내산", "대형카페", "역세권"],
+      "normalizedHashtags": ["연남맛집", "브런치", "핫플"],
+      "constraints": { "parking": "주차 가능", "reservation": "불가", "waiting": "주말 35분", "accessibility": "엘리베이터" },
+      "openingHours": "10:00-21:00",
+      "cautions": ["주말 웨이팅 35분"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.66, "cohortRank": 2 },
+      "sourceEvidence": [{ "source": "transcript", "text": "웨이팅은 있지만 자리는 넓어요" }]
+    },
+    {
+      "placeId": "pl_c05",
+      "title": "골목 안 소규모 식당",
+      "category": "restaurant",
+      "subcategory": "한식",
+      "location": { "name": "연남동 골목", "address": null, "nearestStation": "가좌", "regionTags": ["연남"] },
+      "price": { "amounts": [19000], "perPerson": 19000, "priceLevel": "low", "discount": null },
+      "features": ["조용한", "가성비", "숨은맛집", "재방문"],
+      "normalizedHashtags": ["연남맛집", "숨은맛집", "가성비맛집"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "없음", "accessibility": null },
+      "openingHours": "11:30-21:00",
+      "cautions": ["브레이크타임 15:00-17:30"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.54, "cohortRank": 7 },
+      "sourceEvidence": [{ "source": "caption", "text": "테이블 네 개뿐인 작은 집" }]
+    },
+    {
+      "placeId": "pl_c06",
+      "title": "연남 실내 서핑 시뮬레이터",
+      "category": "activity_experience",
+      "subcategory": "액티비티",
+      "location": { "name": "홍대 인근", "address": null, "nearestStation": "홍대입구", "regionTags": ["홍대", "연남"] },
+      "price": { "amounts": [38000], "perPerson": 38000, "priceLevel": "high", "discount": null },
+      "features": ["액티비티", "이색", "핫플", "컨셉"],
+      "normalizedHashtags": ["이색데이트", "액티비티", "홍대핫플"],
+      "constraints": { "parking": "불가", "reservation": "예약 필수", "waiting": "없음", "accessibility": null },
+      "openingHours": "12:00-22:00",
+      "cautions": ["여벌 옷 필요"],
+      "sponsored": true,
+      "similarUserSignal": { "likeRate": 0.59, "cohortRank": 4 },
+      "sourceEvidence": [{ "source": "caption", "text": "체험권 제공받아 진행했습니다" }]
+    },
+    {
+      "placeId": "pl_c07",
+      "title": "조용한 북카페",
+      "category": "cafe_dessert",
+      "subcategory": "카페",
+      "location": { "name": "연남동", "address": null, "nearestStation": "홍대입구", "regionTags": ["연남"] },
+      "price": { "amounts": [9000], "perPerson": 9000, "priceLevel": "low", "discount": null },
+      "features": ["조용한", "아늑한", "통창", "감성"],
+      "normalizedHashtags": ["연남카페", "북카페", "조용한카페"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "없음", "accessibility": null },
+      "openingHours": "11:00-22:00",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.47, "cohortRank": 9 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#연남조용한카페" }]
+    },
+    {
+      "placeId": "pl_c08",
+      "title": "홍대 루프탑 펍",
+      "category": "restaurant",
+      "subcategory": "술집",
+      "location": { "name": "홍대", "address": null, "nearestStation": "홍대입구", "regionTags": ["홍대"] },
+      "price": { "amounts": [27000], "perPerson": 27000, "priceLevel": "mid", "discount": null },
+      "features": ["루프탑", "야경", "핫플", "시끌벅적"],
+      "normalizedHashtags": ["홍대핫플", "루프탑", "야경맛집"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "주말 25분", "accessibility": "엘리베이터" },
+      "openingHours": "17:00-02:00",
+      "cautions": ["노키즈존", "주말 웨이팅 25분"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.61, "cohortRank": 3 },
+      "sourceEvidence": [{ "source": "transcript", "text": "해 질 때 올라가면 제일 좋아요" }]
+    },
+    {
+      "placeId": "pl_c09",
+      "title": "연남 사진 스튜디오 셀프 촬영",
+      "category": "activity_experience",
+      "subcategory": "체험",
+      "location": { "name": "연남동", "address": null, "nearestStation": "홍대입구", "regionTags": ["연남"] },
+      "price": { "amounts": [], "perPerson": null, "priceLevel": null, "discount": null },
+      "features": ["포토존", "이색", "프라이빗"],
+      "normalizedHashtags": ["셀프스튜디오", "이색데이트", "인생샷"],
+      "constraints": { "parking": "불가", "reservation": "예약 필수", "waiting": "없음", "accessibility": null },
+      "openingHours": null,
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.5, "cohortRank": 8 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#연남셀프스튜디오" }]
+    }
+  ],
+  "expectations": {
+    "byAxis": {
+      "scheduleRigidity.positive": {
+        "requireStartTimeOnAllStops": true,
+        "mustRespectClosingTime": { "pl_c02": "19:00", "pl_c05_breakTime": "15:00-17:30" },
+        "requireReservationActionFor": ["pl_c02", "pl_c06", "pl_c09"]
+      },
+      "scheduleRigidity.negative": {
+        "requireAlternativesCount": 2,
+        "requireStartTimeNull": true,
+        "preferWalkableCluster": true
+      },
+      "crowdTolerance.negative": { "shouldAvoidPlaceIds": ["pl_c04", "pl_c08"], "maxStops": 3 },
+      "crowdTolerance.positive": { "shouldPreferPlaceIds": ["pl_c04", "pl_c08"] }
+    },
+    "globalInvariants": {
+      "sponsoredNoticeRequiredFor": ["pl_c06"],
+      "cautionsMustPropagate": { "pl_c08": ["노키즈존", "주말 웨이팅 25분"], "pl_c02": ["당일 예약 불가", "19시 종료"] },
+      "verificationRequiredMustIncludeWhenUsed": ["pl_c09"],
+      "budgetPerPersonMax": 70000,
+      "maxMoveMinutes": 25
+    }
+  }
+}
