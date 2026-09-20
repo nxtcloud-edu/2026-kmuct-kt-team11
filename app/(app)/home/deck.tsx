@@ -1,8 +1,10 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedPlace } from '@/lib/api/types';
+import { reelThumb } from '@/lib/reel-thumb';
 
 /**
  * The saved-places deck.
@@ -157,7 +159,11 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
             // invisible against a white canvas.
             className="absolute inset-0 rounded-[var(--radius-4xl)] bg-surface-2 motion-safe:transition-transform motion-safe:duration-300"
             style={{
-              transform: `translateY(${-(i + 1) * 9}px) scale(${1 - (i + 1) * 0.05})`,
+              // scaleX, not scale: a uniform scale shrinks the ghost vertically
+              // too, so on a tall card it hides inside the front card's bounds
+              // instead of peeking above it. Narrowing horizontally keeps the
+              // vertical offset exactly the translate.
+              transform: `translateY(${-(i + 1) * 9}px) scaleX(${1 - (i + 1) * 0.05})`,
               opacity: 1 - i * 0.4,
             }}
           />
@@ -196,14 +202,31 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
             </p>
           ) : null}
 
-          {/* The reel still belongs here and arrives in slice 3. Until then there
-              is no image block at all — an empty grey rectangle would be a
-              promise the card cannot keep. */}
-          {current.hook ? (
-            <p className="mt-[var(--space-11)] text-secondary" style={{ font: 'var(--type-body)' }}>
-              {current.hook}
-            </p>
-          ) : null}
+          {/* MOCK until slice 3 — see lib/reel-thumb.ts. Portrait, because a reel
+              is portrait and a landscape crop would misrepresent the frame the
+              creator chose. `draggable=false` so dragging the card does not
+              start a native image drag instead of a swipe. */}
+          <div className="mt-[var(--space-11)] relative aspect-[4/5] w-[62%] overflow-hidden rounded-[var(--radius-lg)] bg-surface-2">
+            <Image
+              src={reelThumb(current.id)}
+              alt=""
+              fill
+              draggable={false}
+              sizes="260px"
+              className="object-cover"
+            />
+            {current.hook ? (
+              // The caption sits on a solid plate, never straight on the photo:
+              // Korean place names over a busy frame are unreadable, and a
+              // gradient scrim only half-fixes it.
+              <p
+                className="absolute inset-x-[var(--space-5)] bottom-[var(--space-5)] rounded-[var(--radius-sm)] bg-[var(--puck-white)] px-[var(--space-7)] py-[var(--space-5)] text-ink"
+                style={{ font: 'var(--type-card-title)' }}
+              >
+                {current.hook}
+              </p>
+            ) : null}
+          </div>
         </article>
       </div>
 
