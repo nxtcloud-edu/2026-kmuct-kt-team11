@@ -44,7 +44,7 @@ export type CaptionBlock = {
  * listicles, and `2026.` should not read as entry 20.
  */
 const BLOCK_START =
-  /^[ \t]*(?:(\d{1,2})[ \t]*[.)]|([\u2460-\u2473\u2776-\u277F\u278A-\u2793]))[ \t]*/gm;
+  /^[ \t]*(?:(\d{1,2})[ \t]*[.)]|([\u2460-\u2473\u24EB-\u24FE\u2776-\u2793]))[ \t]*/gm;
 
 /**
  * CIRCLED NUMERALS COUNT AS NUMBERING, and leaving them out was a real defect
@@ -58,17 +58,29 @@ const BLOCK_START =
  * transcript of the on-screen text, which carries names and no addresses, and
  * eight geocodable venues became eight unpinnable ones.
  *
- * Three ranges, because creators use all three and a reader cannot tell them
- * apart: ① U+2460-2473 (1-20), ❶ U+2776-277F (1-10), ➊ U+278A-2793 (1-10).
+ * SIX RANGES, AND THE COUNT IS THE POINT. The first attempt at this covered
+ * three of them and shipped, and the very next caption to arrive numbered its
+ * venues ❶ through ❿ and then ⓫ through ⓯ — which is `U+24EB`, a different block
+ * from `❶` despite looking like its continuation. Ten of fifteen markers were
+ * seen, the model's fifteen "disagreed" with the counter's ten, and a caption
+ * carrying a full street address for all fifteen venues was graded `low` and
+ * lost the ladder to a transcript of the on-screen text.
+ *
+ * So the ranges are enumerated exhaustively rather than as-encountered. A
+ * creator picks these out of an emoji keyboard and has no idea which block they
+ * came from; the parser cannot afford to care either.
  * No separator is required after them — `❶ 터방내` has none and `❶.` is unusual —
  * which is safe precisely because these characters do not occur in prices,
  * dates or addresses, the strings the ASCII branch has to defend against with
  * its mandatory `.` or `)`.
  */
 const CIRCLED_RANGES: [number, number, number][] = [
-  [0x2460, 0x2473, 1], // ①-⑳
-  [0x2776, 0x277f, 1], // ❶-❿
-  [0x278a, 0x2793, 1], // ➊-➓
+  [0x2460, 0x2473, 1], // ①-⑳   circled 1-20
+  [0x24eb, 0x24f4, 11], // ⓫-⓴   NEGATIVE circled 11-20 — a different block
+  [0x24f5, 0x24fe, 1], // ⓵-⓾   double circled 1-10
+  [0x2776, 0x277f, 1], // ❶-❿   dingbat negative circled 1-10
+  [0x2780, 0x2789, 1], // ➀-➉   dingbat circled sans-serif 1-10
+  [0x278a, 0x2793, 1], // ➊-➓   dingbat negative circled sans-serif 1-10
 ];
 
 function circledValue(ch: string): number | null {
