@@ -32,6 +32,7 @@ export type ProblemCode =
   | 'recommendation-failed'
   | 'recommendation-unavailable'
   | 'ingest-breaker-tripped'
+  | 'ingest-not-configured'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -69,7 +70,13 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   // poller stopped because Instagram challenged it, and it stays stopped until a
   // person clears the challenge and resets ingest_state by hand. Retry-After
   // would be a lie, so the route does not send one.
-  'ingest-breaker-tripped':   { status: 503, title: 'Ingestion halted',            detail: 'Reel ingestion has stopped and will not resume until it is reset by hand.' },
+  'ingest-breaker-tripped':   { status: 503, title: 'Ingestion halted',            detail: '릴스 수집이 멈췄어요. 손으로 다시 켜기 전까지는 재개되지 않아요.' },
+  // Also not transient, and not a bug either: an environment variable is missing,
+  // so nothing was attempted. 503 rather than 500 because the service is
+  // genuinely unavailable rather than broken, and the fix is a deployment, not a
+  // retry. The detail names the VARIABLE and never its value — `IG_SESSION_ID`
+  // is a bearer credential for an entire Instagram account.
+  'ingest-not-configured':    { status: 503, title: 'Ingestion not configured',    detail: '릴스 수집에 필요한 환경 변수가 설정되지 않았어요.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 

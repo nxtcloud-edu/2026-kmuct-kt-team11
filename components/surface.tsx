@@ -80,28 +80,45 @@ export function Chip({
  * of, so "primary" is ink-filled, "secondary" is a tinted fill and "quiet" is
  * nothing at all. Motion budget is opacity — no transform, no scale, no hover.
  */
+export type ButtonVariant = 'primary' | 'secondary' | 'quiet';
+
+const BUTTON_BASE =
+  'inline-flex items-center justify-center gap-2 rounded-[var(--radius-lg)] px-5 ' +
+  'h-[var(--field-height)] transition-opacity duration-200 ' +
+  'active:opacity-[var(--press-opacity)] disabled:opacity-40 disabled:cursor-not-allowed';
+
+const BUTTON_TONE: Record<ButtonVariant, string> = {
+  primary: 'bg-ink text-on-ink',
+  secondary: 'bg-surface-2 text-ink',
+  quiet: 'bg-transparent text-secondary',
+};
+
 export function Button({
   variant = 'secondary',
   className = '',
   style,
   ...rest
-}: ComponentProps<'button'> & { variant?: 'primary' | 'secondary' | 'quiet' }) {
-  const base =
-    'inline-flex items-center justify-center gap-2 rounded-[var(--radius-lg)] px-5 ' +
-    'h-[var(--field-height)] transition-opacity duration-200 ' +
-    'active:opacity-[var(--press-opacity)] disabled:opacity-40 disabled:cursor-not-allowed';
-  const tone = {
-    primary: 'bg-ink text-on-ink',
-    secondary: 'bg-surface-2 text-ink',
-    quiet: 'bg-transparent text-secondary',
-  }[variant];
+}: ComponentProps<'button'> & { variant?: ButtonVariant }) {
   return (
     <button
-      className={`${base} ${tone} ${className}`}
+      className={`${BUTTON_BASE} ${BUTTON_TONE[variant]} ${className}`}
       style={{ font: 'var(--type-button)', ...style }}
       {...rest}
     />
   );
+}
+
+/**
+ * The same button, as a link.
+ *
+ * Exists because `<Link><Button/></Link>` is invalid: an `<a>` may not contain a
+ * `<button>`, and browsers reparent it — which in practice means a tap can land
+ * on the anchor, the button, or neither. The style recipe is shared with
+ * `Button` above so the two cannot drift; only the element and its semantics
+ * differ, and this one is a navigation, not an action.
+ */
+export function buttonClassName(variant: ButtonVariant = 'secondary'): string {
+  return `${BUTTON_BASE} ${BUTTON_TONE[variant]}`;
 }
 
 /* ── ChoicePill ───────────────────────────────────────────────────────────── */
