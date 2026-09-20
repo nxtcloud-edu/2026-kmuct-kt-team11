@@ -39,6 +39,7 @@ media/
 *.tsbuildinfo
 .DS_Store
 .env*
+!.env.example
 .pnp.*
 .pnpm-debug.log*
 .vercel

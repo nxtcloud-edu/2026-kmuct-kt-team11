@@ -1,0 +1,431 @@
+{
+  "version": 2,
+  "updatedAt": "2026-09-20",
+  "description": "릴스·틱톡의 transcript, caption, hashtag에서 추천 대상과 장소·상품 정보를 추출하기 위한 LLM 매핑 설정",
+  "inputPriority": ["hashtag", "caption", "transcript"],
+  "sourceWeights": {
+    "hashtag": 1.0,
+    "caption": 0.9,
+    "transcript": 0.8,
+    "inferredFeatureBundle": 0.6
+  },
+  "normalization": {
+    "rules": [
+      "해시태그 앞의 #을 제거한다.",
+      "한글과 숫자는 유지하고 공백, 밑줄, 하이픈은 비교할 때 제거한다.",
+      "영문은 소문자로 변환한다.",
+      "원문 해시태그는 rawHashtags에 그대로 보존한다.",
+      "커플, 연인, 남친, 여친, 럽스타그램은 couple로 정규화한다.",
+      "아이, 아기, 유아, 키즈, 자녀는 family_with_children 신호로 정규화한다.",
+      "애견, 반려견, 강아지, 댕댕이는 pet_owner 신호로 정규화한다.",
+      "광고, 협찬, 유료광고는 sponsored 신호로 정규화한다."
+    ],
+    "genericNoiseHashtags": [
+      "일상", "데일리", "daily", "instagood", "좋아요", "좋아요반사",
+      "맞팔", "선팔", "팔로우", "소통", "인친", "f4f", "l4l",
+      "셀카", "셀피", "selfie", "ootd"
+    ],
+    "noiseRule": "genericNoiseHashtags는 추천 대상 점수에 반영하지 않고 원문 통계에만 보존한다."
+  },
+  "hashtagPatterns": [
+    {
+      "id": "location_category",
+      "pattern": "{지역}{업종}",
+      "examples": ["서울맛집", "성수카페", "제주숙소", "부산가볼만한곳", "강남데이트"],
+      "extract": ["location", "category"]
+    },
+    {
+      "id": "audience_activity",
+      "pattern": "{동행자}{활동}",
+      "examples": ["가족여행", "커플여행", "아이와가볼만한곳", "부모님과함께", "친구랑여행"],
+      "extract": ["audience", "activity"]
+    },
+    {
+      "id": "situation_purpose",
+      "pattern": "{상황}{목적}",
+      "examples": ["비오는날데이트", "주말나들이", "기념일데이트", "당일치기여행", "퇴근후데이트"],
+      "extract": ["occasion", "activity"]
+    },
+    {
+      "id": "benefit_category",
+      "pattern": "{혜택·조건}{업종}",
+      "examples": ["가성비맛집", "무료전시", "주차가능카페", "애견동반식당", "예약가능맛집"],
+      "extract": ["benefit", "constraint", "category"]
+    },
+    {
+      "id": "feature_category",
+      "pattern": "{특징}{업종}",
+      "examples": ["오션뷰카페", "야경맛집", "감성숙소", "대형카페", "프라이빗숙소"],
+      "extract": ["feature", "category"]
+    },
+    {
+      "id": "mobility_trip",
+      "pattern": "{이동방식}{여행·장소}",
+      "examples": ["뚜벅이여행", "지하철여행", "드라이브코스", "역세권맛집", "공항근처맛집"],
+      "extract": ["mobility", "activity", "locationHint"]
+    }
+  ],
+  "contentCategories": {
+    "restaurant": {
+      "label": "음식점",
+      "terms": [
+        "맛집", "먹스타그램", "맛스타그램", "맛집추천", "맛집탐방", "현지인맛집",
+        "로컬맛집", "신상맛집", "웨이팅맛집", "한식", "고기집", "횟집", "술집", "포차", "브런치"
+      ]
+    },
+    "cafe_dessert": {
+      "label": "카페·디저트",
+      "terms": [
+        "카페", "카페스타그램", "카페투어", "카페추천", "감성카페", "대형카페",
+        "신상카페", "디저트맛집", "베이커리카페", "커피맛집", "오션뷰카페", "루프탑카페"
+      ]
+    },
+    "travel_attraction": {
+      "label": "여행·관광지",
+      "terms": [
+        "여행", "여행스타그램", "국내여행", "해외여행", "주말여행", "당일치기",
+        "가볼만한곳", "여행코스", "핫플", "핫플레이스", "숨은명소", "관광지", "드라이브코스"
+      ]
+    },
+    "accommodation": {
+      "label": "숙박",
+      "terms": [
+        "숙소", "숙소추천", "감성숙소", "가성비숙소", "호텔", "호캉스",
+        "펜션", "풀빌라", "캠핑", "글램핑", "오션뷰숙소", "독채숙소"
+      ]
+    },
+    "culture_exhibition": {
+      "label": "전시·문화",
+      "terms": [
+        "전시", "전시회", "무료전시", "미술관", "박물관", "공연",
+        "축제", "팝업", "팝업스토어", "문화생활"
+      ]
+    },
+    "activity_experience": {
+      "label": "체험·액티비티",
+      "terms": [
+        "체험", "원데이클래스", "공방", "액티비티", "테마파크",
+        "놀이공원", "산책", "등산", "러닝", "레저"
+      ]
+    },
+    "shopping_product": {
+      "label": "쇼핑·상품",
+      "terms": [
+        "쇼핑", "쇼핑추천", "구매후기", "제품추천", "생활템",
+        "꿀템", "가성비템", "소품샵", "편집샵", "선물추천"
+      ]
+    },
+    "beauty_wellness": {
+      "label": "뷰티·웰니스",
+      "terms": [
+        "뷰티", "화장품추천", "스킨케어", "메이크업", "다이어트",
+        "운동", "헬스", "필라테스", "마사지", "스파"
+      ]
+    }
+  },
+  "audienceMappings": {
+    "couple": {
+      "label": "커플·연인",
+      "aliases": ["커플", "연인", "남친", "여친", "남자친구", "여자친구"],
+      "hashtags": [
+        "커플", "커플스타그램", "럽스타그램", "데이트", "데이트코스", "서울데이트",
+        "실내데이트", "이색데이트", "주말데이트", "기념일데이트", "커플여행", "커플사진"
+      ],
+      "boostSignals": [
+        "분위기 좋은", "야경", "프라이빗", "기념일", "둘이", "사진 찍기 좋은", "와인", "드라이브"
+      ],
+      "recommendWhen": "데이트 목적이나 둘이 즐기는 경험이 명시되고 분위기·야경·기념일·프라이빗 요소 중 하나 이상이 확인될 때"
+    },
+    "family_with_children": {
+      "label": "자녀 동반 가족",
+      "aliases": ["가족", "아이", "아기", "유아", "어린이", "자녀", "키즈"],
+      "hashtags": [
+        "가족여행", "가족나들이", "가족외식", "아이와가볼만한곳", "아이랑갈만한곳",
+        "아기랑갈만한곳", "아이와여행", "키즈카페", "키즈프렌들리", "육아맘", "주말육아", "체험학습"
+      ],
+      "boostSignals": [
+        "유아 의자", "키즈 메뉴", "수유실", "기저귀 교환대", "놀이 공간",
+        "넓은 좌석", "주차 가능", "유모차 가능", "안전한"
+      ],
+      "excludeSignals": ["노키즈존", "유아 입장 불가"],
+      "recommendWhen": "아이 동반이 명시되거나 유아 의자·키즈 메뉴·놀이 공간·유모차 접근성 중 두 가지 이상이 확인될 때"
+    },
+    "family_with_parents": {
+      "label": "부모님 동반 가족",
+      "aliases": ["부모님", "엄마아빠", "어르신", "가족 어른"],
+      "hashtags": [
+        "부모님과함께", "부모님모시고", "효도여행", "효도관광",
+        "가족외식", "가족모임", "상견례", "어버이날"
+      ],
+      "boostSignals": [
+        "조용한", "룸", "좌식 아님", "엘리베이터", "주차 가능",
+        "걷기 편한", "한정식", "건강식"
+      ],
+      "recommendWhen": "부모님·어르신 동반이 명시되거나 조용함·접근성·주차·편한 좌석 요소가 함께 확인될 때"
+    },
+    "friends_group": {
+      "label": "친구·단체",
+      "aliases": ["친구", "친구들", "동기", "동료", "단체", "모임"],
+      "hashtags": [
+        "친구랑", "우정여행", "우정스타그램", "친구들과", "모임장소",
+        "단체모임", "회식장소", "동창회", "생일파티", "파티룸"
+      ],
+      "boostSignals": [
+        "단체석", "여럿이", "나눠 먹기", "대관", "파티", "게임", "회식", "시끌벅적"
+      ],
+      "recommendWhen": "3인 이상 모임이 명시되거나 단체석·대관·파티·공유 메뉴가 확인될 때"
+    },
+    "solo": {
+      "label": "혼자 즐기는 사람",
+      "aliases": ["혼자", "혼자서", "1인", "솔로"],
+      "hashtags": [
+        "혼밥", "혼카페", "혼술", "혼자여행", "혼놀",
+        "혼캉스", "나홀로여행", "1인여행", "1인맛집"
+      ],
+      "boostSignals": [
+        "1인석", "바 좌석", "혼자 가기 좋은", "조용한", "셀프 주문", "1인 메뉴", "안전한"
+      ],
+      "recommendWhen": "혼자 방문 가능성이 명시되거나 1인석·1인 메뉴·바 좌석 등 혼자 이용하기 쉬운 근거가 확인될 때"
+    },
+    "pet_owner": {
+      "label": "반려동물 동반자",
+      "aliases": ["반려동물", "반려견", "애견", "강아지", "댕댕이", "고양이"],
+      "hashtags": [
+        "애견동반", "반려견동반", "강아지동반", "반려동물동반", "애견동반카페",
+        "애견동반식당", "애견동반여행", "펫프렌들리", "댕댕이랑", "개스타그램"
+      ],
+      "boostSignals": [
+        "실내 동반", "야외 동반", "목줄", "이동장", "반려견 메뉴", "운동장", "대형견 가능"
+      ],
+      "excludeSignals": ["반려동물 불가", "애견 동반 불가"],
+      "recommendWhen": "동반 가능 여부와 실내·야외, 이동장, 견종·크기 제한 중 하나 이상이 구체적으로 확인될 때"
+    },
+    "budget_seeker": {
+      "label": "가성비·절약 중시",
+      "aliases": ["가성비", "저렴", "알뜰", "특가", "할인", "무료"],
+      "hashtags": [
+        "가성비", "가성비맛집", "가성비숙소", "가성비여행", "저렴한맛집",
+        "만원대맛집", "무료전시", "무료체험", "할인정보", "특가", "내돈내산", "혜자"
+      ],
+      "boostSignals": [
+        "가격 대비", "만원 이하", "1+1", "무한리필", "무료 입장", "쿠폰", "할인", "양이 많은"
+      ],
+      "recommendWhen": "실제 가격이나 할인 조건이 나오고 가격 대비 장점이 구체적으로 설명될 때"
+    },
+    "premium_seeker": {
+      "label": "프리미엄·특별한 경험 중시",
+      "aliases": ["럭셔리", "고급", "프리미엄", "특별한 날"],
+      "hashtags": [
+        "호캉스", "럭셔리호텔", "오마카세", "파인다이닝", "호텔뷔페",
+        "프라이빗", "기념일", "프로포즈", "특별한날"
+      ],
+      "boostSignals": [
+        "코스 요리", "룸", "컨시어지", "고급스러운", "한정", "예약제", "스페셜 패키지"
+      ],
+      "recommendWhen": "높은 가격보다 서비스·희소성·프라이버시·기념일 가치가 핵심 장점으로 제시될 때"
+    },
+    "traveler": {
+      "label": "여행자",
+      "aliases": ["여행자", "관광객", "여행객"],
+      "hashtags": [
+        "국내여행", "해외여행", "여행스타그램", "여행코스", "주말여행", "당일치기",
+        "뚜벅이여행", "기차여행", "제주여행", "부산여행", "서울여행", "현지인맛집"
+      ],
+      "boostSignals": [
+        "코스", "동선", "소요 시간", "교통", "입장료", "숙소 근처", "공항 근처", "현지인 추천"
+      ],
+      "recommendWhen": "목적지와 이동·동선·소요 시간·입장료 중 하나 이상의 실행 정보가 확인될 때"
+    },
+    "local_explorer": {
+      "label": "핫플·로컬 탐색형",
+      "aliases": ["핫플", "로컬", "동네", "신상"],
+      "hashtags": [
+        "핫플", "핫플레이스", "신상카페", "신상맛집", "동네맛집",
+        "로컬맛집", "숨은맛집", "숨은명소", "오픈런", "요즘핫한곳"
+      ],
+      "boostSignals": [
+        "새로 생긴", "현지인만 아는", "골목", "기간 한정", "팝업", "웨이팅", "예약 오픈"
+      ],
+      "recommendWhen": "신규성·희소성·지역성이 구체적인 장소명 또는 지역명과 함께 확인될 때"
+    },
+    "photo_mood_seeker": {
+      "label": "사진·분위기 중시",
+      "aliases": ["사진", "감성", "뷰", "포토존"],
+      "hashtags": [
+        "인생샷", "포토존", "사진맛집", "감성카페", "감성숙소",
+        "뷰맛집", "오션뷰", "야경맛집", "노을맛집", "사진찍기좋은곳"
+      ],
+      "boostSignals": [
+        "채광", "통창", "루프탑", "노을", "야경", "오션뷰", "포토 스팟", "사진 잘 나오는 시간"
+      ],
+      "recommendWhen": "구체적인 촬영 포인트, 전망, 조명 또는 추천 촬영 시간이 확인될 때"
+    },
+    "student_young_adult": {
+      "label": "학생·대학생",
+      "aliases": ["학생", "대학생", "캠퍼스", "학교 근처"],
+      "hashtags": [
+        "대학생", "대학생데이트", "학생데이트", "학교앞맛집",
+        "대학가맛집", "캠퍼스라이프", "공강", "시험기간", "가성비맛집"
+      ],
+      "boostSignals": [
+        "학생 할인", "학교 근처", "만원 이하", "공강", "스터디", "콘센트", "늦게까지"
+      ],
+      "recommendWhen": "학생·대학생이 명시되거나 대학가 위치와 학생 할인·저가·스터디 편의가 함께 확인될 때"
+    }
+  },
+  "featureMappings": {
+    "value": [
+      "가성비", "저렴한", "할인", "특가", "무료", "혜자",
+      "무한리필", "만원대", "가격 대비", "내돈내산"
+    ],
+    "atmosphere": [
+      "분위기 좋은", "감성", "조용한", "아늑한", "고급스러운", "이국적인", "프라이빗", "힐링"
+    ],
+    "view_photo": [
+      "오션뷰", "한강뷰", "시티뷰", "마운틴뷰", "야경",
+      "노을", "통창", "루프탑", "인생샷", "포토존"
+    ],
+    "access": [
+      "역세권", "도보", "대중교통", "주차 가능", "무료 주차",
+      "발렛", "엘리베이터", "휠체어 가능", "유모차 가능"
+    ],
+    "operation": [
+      "예약", "예약 필수", "캐치테이블", "테이블링", "웨이팅",
+      "오픈런", "브레이크타임", "라스트오더", "휴무", "24시간"
+    ],
+    "food_preference": [
+      "비건", "채식", "할랄", "글루텐프리", "저당", "건강식", "맵지 않은", "알레르기"
+    ],
+    "visit_timing": [
+      "평일", "주말", "아침", "점심", "저녁", "심야",
+      "비 오는 날", "봄", "여름", "가을", "겨울"
+    ]
+  },
+  "trustSignals": {
+    "organicPositive": [
+      "내돈내산", "직접 구매", "직접 방문", "재방문", "또간집", "솔직 후기"
+    ],
+    "sponsored": [
+      "광고", "유료광고", "협찬", "제품 제공", "초대권 제공", "원고료"
+    ],
+    "caution": [
+      "단점", "아쉬운 점", "비추천", "주의", "웨이팅 길다",
+      "주차 불가", "노키즈존", "반려동물 불가", "예약 필수"
+    ]
+  },
+  "audienceScoring": {
+    "points": {
+      "exactAudienceHashtag": 3.0,
+      "explicitCaptionAudience": 2.5,
+      "explicitTranscriptAudience": 2.0,
+      "matchingBoostSignal": 1.0,
+      "matchingHashtagPattern": 1.0,
+      "genericNoiseHashtag": 0.0,
+      "negatedOrProhibitedSignal": -3.0
+    },
+    "confidenceBands": {
+      "high": "점수 5 이상이며 서로 다른 입력 소스 2개 이상에서 근거가 있음",
+      "medium": "점수 3 이상이거나 명시적 해시태그 1개와 보조 신호가 있음",
+      "low": "단일 약한 신호만 있거나 문맥 추론에 의존함"
+    },
+    "rules": [
+      "추천 대상은 최대 3개만 반환하고 가장 근거가 강한 대상을 primaryAudience로 선택한다.",
+      "해시태그, caption, transcript 중 두 곳 이상에서 같은 의미가 확인되면 confidence를 높인다.",
+      "영상에 두 사람이 등장한다는 이유만으로 couple로 추론하지 않는다.",
+      "가족이라는 단어만으로 family_with_children과 family_with_parents를 동시에 선택하지 않는다.",
+      "노키즈존은 family_with_children의 강한 제외 신호다.",
+      "애견동반 불가는 pet_owner의 강한 제외 신호다.",
+      "가성비는 실제 가격, 양, 구성 또는 할인 근거가 없으면 low confidence로 제한한다.",
+      "해시태그 개수나 인기만으로 추천 대상을 결정하지 않는다. 의미가 구체적인 복합 태그를 우선한다."
+    ]
+  },
+  "informationFields": [
+    "title", "category", "subcategory", "location.name", "location.address",
+    "location.nearestStation", "location.regionTags", "price.amounts", "price.perPerson",
+    "price.priceLevel", "price.discount", "recommendedItems", "primaryAudience",
+    "recommendedAudiences", "occasions", "benefits", "features", "constraints.parking",
+    "constraints.reservation", "constraints.waiting", "constraints.childFriendly",
+    "constraints.petFriendly", "constraints.accessibility", "openingHours", "bestVisitTime",
+    "cautions", "sponsored", "verificationRequired", "rawHashtags",
+    "normalizedHashtags", "evidence"
+  ],
+  "llmOutputShape": {
+    "title": null,
+    "category": null,
+    "subcategory": null,
+    "summary": null,
+    "location": {
+      "name": null,
+      "address": null,
+      "nearestStation": null,
+      "regionTags": []
+    },
+    "price": {
+      "amounts": [],
+      "perPerson": null,
+      "priceLevel": null,
+      "discount": null
+    },
+    "recommendedItems": [],
+    "primaryAudience": null,
+    "recommendedAudiences": [
+      {
+        "id": "couple",
+        "label": "커플·연인",
+        "score": 0,
+        "confidence": "low",
+        "reasons": [],
+        "matchedSignals": []
+      }
+    ],
+    "occasions": [],
+    "benefits": [],
+    "features": [],
+    "constraints": {
+      "parking": null,
+      "reservation": null,
+      "waiting": null,
+      "childFriendly": null,
+      "petFriendly": null,
+      "accessibility": null
+    },
+    "openingHours": null,
+    "bestVisitTime": null,
+    "cautions": [],
+    "sponsored": false,
+    "verificationRequired": [],
+    "rawHashtags": [],
+    "normalizedHashtags": [],
+    "matchedPatterns": [],
+    "evidence": [
+      {
+        "field": null,
+        "source": "transcript",
+        "text": null,
+        "timestamp": null,
+        "confidence": 0.0
+      }
+    ]
+  },
+  "extractionRules": [
+    "hashtag, caption, transcript에 직접 언급된 사실을 우선하고 추측은 최소화한다.",
+    "복합 해시태그는 location, category, audience, occasion, benefit으로 분해한다.",
+    "부정 표현은 긍정 신호로 계산하지 않는다. 예: '가성비가 좋지 않다', '아이와 가기 어렵다'.",
+    "가격, 주소, 영업시간, 휴무, 할인, 예약 방식은 verificationRequired에 추가한다.",
+    "광고 또는 협찬 신호가 하나라도 있으면 sponsored를 true로 표시한다.",
+    "각 추천 대상에는 이유와 원문 근거를 최소 1개 포함한다.",
+    "관련 정보가 없으면 추측하지 않고 null 또는 빈 배열을 사용한다.",
+    "해시태그는 추천 대상을 설명하는 문맥 신호로 사용하며 인기도나 도달률의 직접 지표로 사용하지 않는다."
+  ],
+  "researchNotes": {
+    "observedPattern": "한국어 해시태그는 지역+업종, 동행자+활동, 상황+목적 형태의 결합어가 추천 의도를 가장 구체적으로 드러낸다.",
+    "instagramGuidance": "2025년 12월 이후 Instagram 게시물과 릴스는 최대 5개의 구체적인 해시태그 사용을 안내하고 있어, 다량의 범용 태그보다 의미가 선명한 태그를 우선한다.",
+    "sources": [
+      "https://about.fb.com/news/2024/10/best-practices-education-hub-creators-instagram/",
+      "https://www.tagsfinder.com/en-kr/related/%EB%A7%9B%EC%A7%91/",
+      "https://www.tagsfinder.com/en-kr/related/%EC%B9%B4%ED%8E%98/",
+      "https://www.tagsfinder.com/en-kr/related/%EC%97%AC%ED%96%89/",
+      "https://www.shopify.com/kr/blog/instagram-hashtags"
+    ]
+  }
+}

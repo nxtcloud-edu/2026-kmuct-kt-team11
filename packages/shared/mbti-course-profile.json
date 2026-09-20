@@ -1,0 +1,316 @@
+{
+  "version": 1,
+  "updatedAt": "2026-09-20",
+  "description": "MBTI 캐릭터별 데이트 코스 생성 파라미터. 태그 어휘는 transcript-extraction.json을 그대로 참조한다.",
+  "vocabulary": {
+    "source": "packages/shared/transcript-extraction.json",
+    "signalFields": ["category", "features", "normalizedHashtags", "occasions", "benefits", "recommendedAudiences"],
+    "matchRule": "축의 신호 문자열은 위 필드 값에 포함 여부로 매칭한다. 부분 문자열 포함을 허용하되 부정 표현이 앞뒤에 붙은 경우 매칭으로 보지 않는다."
+  },
+
+  "designPrinciples": [
+    "시스템 프롬프트는 하나이며 MBTI는 4개 축의 파라미터로만 주입한다. 유형별 프롬프트 전문을 따로 두지 않는다.",
+    "MBTI는 사실을 바꾸지 않는다. 랭킹 가중치, 코스 구조, 설명 톤 세 가지에만 영향을 준다.",
+    "MBTI 단독으로 후보를 코스에 진입시키거나 탈락시키지 않는다.",
+    "모든 정류장은 사용자 영상에서 나온 취향 근거를 최소 1개 가져야 한다."
+  ],
+
+  "axes": {
+    "crowdTolerance": {
+      "label": "혼잡·자극 허용치",
+      "poles": { "negative": "I", "positive": "E" },
+      "rankingWeight": 1.0,
+      "negative": {
+        "description": "조용하고 밀도가 낮은 공간에서 대화가 이어지는 코스를 선호한다.",
+        "preferredSignals": ["조용한", "아늑한", "프라이빗", "힐링", "예약", "예약 필수", "숨은맛집", "숨은명소"],
+        "avoidSignals": ["웨이팅", "오픈런", "대형카페", "파티룸", "단체석", "시끌벅적"],
+        "avoidAudiences": ["friends_group"],
+        "structureRules": [
+          "정류장은 3곳 이하로 구성한다.",
+          "정류장 간 이동은 15분 이내로 묶는다.",
+          "피크 타임을 피할 수 있는 방문 시간대를 코스 요약에 제시한다.",
+          "웨이팅이 예상되는 장소를 넣어야 할 경우 반드시 대안을 함께 제시한다."
+        ]
+      },
+      "positive": {
+        "description": "활기와 자극이 있는 공간, 사람이 모이는 장소에서 에너지를 얻는 코스를 선호한다.",
+        "preferredSignals": ["핫플", "핫플레이스", "팝업", "팝업스토어", "루프탑", "대형카페", "축제", "야경", "요즘핫한곳"],
+        "preferredAudiences": ["local_explorer"],
+        "avoidSignals": [],
+        "structureRules": [
+          "정류장은 최대 4곳까지 구성한다.",
+          "웨이팅이 예상되면 예상 시간을 코스 일정에 명시하고 그 시간을 총 소요 시간에 포함한다.",
+          "이동 거리를 줄이기 위해 밀도 높은 상권 안에서 클러스터로 묶는다."
+        ]
+      }
+    },
+
+    "experienceMode": {
+      "label": "경험의 결",
+      "poles": { "negative": "S", "positive": "N" },
+      "rankingWeight": 1.0,
+      "negative": {
+        "description": "직접 먹고 보고 만지는 실체가 분명한 경험, 이미 검증된 장소를 선호한다.",
+        "preferredCategories": ["restaurant", "cafe_dessert", "activity_experience"],
+        "preferredSignals": ["내돈내산", "재방문", "또간집", "현지인맛집", "오션뷰", "통창", "야경", "웨이팅맛집"],
+        "avoidSignals": [],
+        "structureRules": [
+          "검증 신호(내돈내산·재방문·또간집)가 있는 장소를 1곳 이상 포함한다.",
+          "메인 식사 슬롯을 생략하지 않는다.",
+          "각 정류장에서 무엇을 먹고 보는지 구체적인 대상을 1개 이상 적는다."
+        ]
+      },
+      "positive": {
+        "description": "컨셉과 서사가 있는 공간, 처음 보는 형태의 경험에서 재미를 느낀다.",
+        "preferredCategories": ["culture_exhibition", "travel_attraction"],
+        "preferredSignals": ["이색", "이색데이트", "컨셉", "팝업", "전시", "원데이클래스", "숨은명소", "이국적인", "신상"],
+        "avoidSignals": [],
+        "structureRules": [
+          "대화 주제가 될 만한 이색 장소를 1곳 이상 포함한다.",
+          "같은 성격의 장소를 반복 배치하지 않고 경험의 종류를 서로 다르게 구성한다."
+        ]
+      }
+    },
+
+    "rationaleStyle": {
+      "label": "설득 방식",
+      "poles": { "negative": "T", "positive": "F" },
+      "rankingWeight": 0.5,
+      "rankingWeightNote": "고정관념에 기반한 장소 선택을 막기 위해 다른 축의 절반으로 상한을 둔다. 이 축은 주로 서술 톤에 작용한다.",
+      "negative": {
+        "description": "판단 근거가 수치로 확인되는 것을 선호한다.",
+        "preferredSignals": ["가성비", "가격 대비", "역세권", "도보", "주차 가능", "예약"],
+        "preferredAudiences": ["budget_seeker"],
+        "avoidSignals": [],
+        "toneRules": [
+          "각 정류장 설명은 후보 데이터에 있는 가격, 역 접근성, 예약 조건 중 확인 가능한 근거를 앞세운다.",
+          "왜 대안이 아니라 이 장소인지를 1문장으로 비교해 설명한다.",
+          "감상 표현보다 조건과 결과를 앞세운다."
+        ]
+      },
+      "positive": {
+        "description": "그 순간의 분위기와 둘의 경험 흐름이 설명에 담기기를 원한다.",
+        "preferredSignals": ["분위기 좋은", "감성", "노을", "야경", "기념일", "프라이빗", "아늑한"],
+        "preferredOccasions": ["기념일"],
+        "avoidSignals": [],
+        "toneRules": [
+          "각 정류장 설명에 시간대, 빛, 소리, 공간감 중 하나에 대한 감각 묘사를 1문장 포함한다.",
+          "정류장을 개별 항목이 아니라 이어지는 하루의 흐름으로 서술한다.",
+          "감각 묘사는 후보 데이터에 있는 feature에 근거해야 하며 없는 분위기를 지어내지 않는다."
+        ]
+      }
+    },
+
+    "scheduleRigidity": {
+      "label": "일정 경직도",
+      "poles": { "negative": "P", "positive": "J" },
+      "rankingWeight": 0.5,
+      "negative": {
+        "description": "정해진 시간표보다 그때그때 고를 수 있는 여지를 원한다.",
+        "preferredSignals": ["도보", "역세권", "24시간", "예약 불필요"],
+        "avoidSignals": ["예약 필수"],
+        "structureRules": [
+          "각 정류장에 alternatives를 2개씩 제공한다.",
+          "도보로 이동 가능한 클러스터를 우선해 순서를 바꿔도 코스가 성립하게 만든다."
+        ]
+      },
+      "positive": {
+        "description": "미리 정해진 일정과 예약이 확정된 상태에서 안심한다.",
+        "preferredSignals": ["예약", "예약 필수", "캐치테이블", "테이블링"],
+        "avoidSignals": ["웨이팅", "오픈런"],
+        "structureRules": [
+          "예약이 필요한 장소를 앞뒤 일정과 충돌하지 않게 배치한다.",
+          "예약 가능한 대안을 우선한다."
+        ]
+      }
+    }
+  },
+
+  "scoring": {
+    "axisFitFormula": "axisFit(place, axis) = clamp(-1, 1, (preferredMatchCount - avoidMatchCount) / 2) * sign(axisValue) 방향으로 정렬한 뒤 |axisValue|를 곱한다.",
+    "mbtiFitFormula": "mbtiFit = 0.5 + 0.5 * (Σ axisFit × rankingWeight) / (Σ rankingWeight). 결과는 0.0~1.0으로 클램프한다.",
+    "finalScoreFormula": "finalScore = tasteFit × 0.8 + mbtiFit × 0.2",
+    "notes": [
+      "tasteFit은 userTasteVector와 장소 태그의 일치도를 사용하며, MVP에서는 similarUserFit 가중치를 0으로 둔다.",
+      "mbtiFit이 아무리 높아도 tasteFit 근거가 0인 장소는 코스에 넣지 않는다."
+    ]
+  },
+
+  "blending": {
+    "weights": { "userTasteVector": 0.8, "similarUserSignal": 0.0, "mbtiAxes": 0.2 },
+    "rule": "MBTI 축은 개인 취향과 협업 신호로 계산된 점수에 더해지는 조정항으로만 작동하며, 단독으로 후보를 진입시키거나 탈락시키지 않는다.",
+    "tieBreaker": "최종 점수 차이가 0.05 이내인 후보들 사이에서는 MBTI 축 적합도가 높은 쪽을 선택한다.",
+    "lowConfidenceFallback": {
+      "trigger": "tasteVectorConfidence가 low이거나 저장한 영상이 3개 미만인 경우",
+      "weights": { "userTasteVector": 0.75, "similarUserSignal": 0.0, "mbtiAxes": 0.25 },
+      "extraRule": "코스 요약에 영상을 더 추가하면 추천이 정확해진다는 안내를 1문장 포함한다."
+    }
+  },
+
+  "courseComposition": {
+    "minStops": 3,
+    "maxStops": 4,
+    "candidateLimit": 30,
+    "minSavedPlaces": 2,
+    "maxExternalRatio": 0.5,
+    "maxMoveMinutes": 25,
+    "maxWalkMinutes": 20,
+    "budgetTolerance": 0.1,
+    "maxDurationMin": 300,
+    "defaultDurationMin": {
+      "meal": 75,
+      "cafe_dessert": 60,
+      "experience": 90,
+      "finale": 60
+    },
+    "slotTemplate": ["meal", "cafe_dessert", "experience", "finale"],
+    "slotMapping": {
+      "meal": ["restaurant"],
+      "cafe_dessert": ["cafe_dessert"],
+      "experience": ["culture_exhibition", "activity_experience", "travel_attraction", "shopping_product"],
+      "finale": ["travel_attraction", "restaurant", "cafe_dessert"]
+    },
+    "rules": [
+      "정류장 수는 3~4곳이며 축의 structureRules가 우선한다.",
+      "후보군에 해당 슬롯의 장소가 없으면 슬롯을 생략한다.",
+      "사용자가 같은 카테고리를 연속으로 선호하면 연속 배치를 허용한다.",
+      "정류장 간 이동은 대중교통 또는 도보 기준 25분 이내여야 한다.",
+      "사용자가 저장한 장소를 최소 2곳 포함하고 외부 장소는 전체 정류장의 절반을 넘지 않는다.",
+      "총 코스 시간은 이동을 포함해 300분 이내로 구성한다.",
+      "식사는 요청 시간대가 식사 시간과 겹칠 때만 포함한다.",
+      "술집은 저녁 시간대에만 마무리 장소로 사용한다.",
+      "숙소는 후보에 있고 사용자 취향 근거가 있을 때 정류장으로 사용할 수 있다.",
+      "각 정류장에 후보군 안의 대안 장소를 2개씩 제공한다.",
+      "총 1인 예산을 합산하고, 가격 정보가 없는 정류장은 합산에서 제외하되 그 사실을 budgetNote에 밝힌다.",
+      "브레이크타임, 라스트오더, 휴무가 충돌하면 순서를 바꾸거나 대안으로 교체한다."
+    ]
+  },
+
+  "guardrails": [
+    "MBTI를 근거로 사용자의 성격, 연애 방식, 능력을 단정하지 않는다.",
+    "MBTI 설명은 코스를 이렇게 구성했다는 의도 설명으로만 사용한다.",
+    "성별이나 연령에 대한 고정관념에 기반한 추천 사유를 쓰지 않는다.",
+    "candidatePlaces에 없는 장소, 가격, 이벤트, 할인, 한정 메뉴를 만들어내지 않는다.",
+    "사용자가 축 값을 직접 조정한 경우 조정값이 types의 기본값을 덮어쓴다."
+  ],
+
+  "types": {
+    "INTJ": {
+      "characterName": "동선 설계자",
+      "oneLineConcept": "군더더기 없이 설계된, 밀도 높은 코스",
+      "axisValues": { "crowdTolerance": -0.7, "experienceMode": 0.7, "rationaleStyle": -0.8, "scheduleRigidity": 0.75 },
+      "overrides": []
+    },
+    "INTP": {
+      "characterName": "구석 탐구자",
+      "oneLineConcept": "남들이 잘 모르는 공간을 파고드는 코스",
+      "axisValues": { "crowdTolerance": -0.75, "experienceMode": 0.8, "rationaleStyle": -0.75, "scheduleRigidity": -0.6 },
+      "overrides": []
+    },
+    "ENTJ": {
+      "characterName": "코스 지휘관",
+      "oneLineConcept": "핵심만 골라 끝까지 밀어붙이는 코스",
+      "axisValues": { "crowdTolerance": 0.6, "experienceMode": 0.55, "rationaleStyle": -0.85, "scheduleRigidity": 0.85 },
+      "overrides": []
+    },
+    "ENTP": {
+      "characterName": "판 벌이는 실험가",
+      "oneLineConcept": "예상 밖 장소로 계속 화제를 만드는 코스",
+      "axisValues": { "crowdTolerance": 0.7, "experienceMode": 0.85, "rationaleStyle": -0.6, "scheduleRigidity": -0.75 },
+      "overrides": []
+    },
+    "INFJ": {
+      "characterName": "의미 수집가",
+      "oneLineConcept": "장소마다 이야기가 남는 조용한 코스",
+      "axisValues": { "crowdTolerance": -0.55, "experienceMode": 0.75, "rationaleStyle": 0.65, "scheduleRigidity": 0.6 },
+      "overrides": []
+    },
+    "INFP": {
+      "characterName": "감성 산책러",
+      "oneLineConcept": "조용한 골목에서 이야기가 쌓이는 코스",
+      "axisValues": { "crowdTolerance": -0.7, "experienceMode": 0.6, "rationaleStyle": 0.8, "scheduleRigidity": -0.6 },
+      "overrides": []
+    },
+    "ENFJ": {
+      "characterName": "분위기 메이커",
+      "oneLineConcept": "함께한 시간이 오래 기억에 남게 짜인 코스",
+      "axisValues": { "crowdTolerance": 0.65, "experienceMode": 0.6, "rationaleStyle": 0.8, "scheduleRigidity": 0.6 },
+      "overrides": []
+    },
+    "ENFP": {
+      "characterName": "즉흥 모험가",
+      "oneLineConcept": "발길 닿는 대로 이어지는 들뜬 코스",
+      "axisValues": { "crowdTolerance": 0.8, "experienceMode": 0.8, "rationaleStyle": 0.7, "scheduleRigidity": -0.8 },
+      "overrides": []
+    },
+    "ISTJ": {
+      "characterName": "검증된 루트러",
+      "oneLineConcept": "실패 없는 곳들로만 채운 안정적인 코스",
+      "axisValues": { "crowdTolerance": -0.7, "experienceMode": -0.8, "rationaleStyle": -0.75, "scheduleRigidity": 0.85 },
+      "overrides": []
+    },
+    "ISFJ": {
+      "characterName": "세심한 배려러",
+      "oneLineConcept": "상대가 편한지부터 챙기는 부드러운 코스",
+      "axisValues": { "crowdTolerance": -0.65, "experienceMode": -0.65, "rationaleStyle": 0.7, "scheduleRigidity": 0.7 },
+      "overrides": []
+    },
+    "ESTJ": {
+      "characterName": "완벽 동선 플래너",
+      "oneLineConcept": "낭비 없는 시간표로 굴러가는 코스",
+      "axisValues": { "crowdTolerance": 0.6, "experienceMode": -0.75, "rationaleStyle": -0.8, "scheduleRigidity": 0.85 },
+      "overrides": []
+    },
+    "ESFJ": {
+      "characterName": "함께가 좋은 기획자",
+      "oneLineConcept": "둘 다 만족할 만한 안전하고 인기 있는 코스",
+      "axisValues": { "crowdTolerance": 0.75, "experienceMode": -0.6, "rationaleStyle": 0.75, "scheduleRigidity": 0.7 },
+      "overrides": []
+    },
+    "ISTP": {
+      "characterName": "담백한 관찰자",
+      "oneLineConcept": "말이 없어도 편한, 군더더기 없는 코스",
+      "axisValues": { "crowdTolerance": -0.7, "experienceMode": -0.55, "rationaleStyle": -0.7, "scheduleRigidity": -0.8 },
+      "overrides": []
+    },
+    "ISFP": {
+      "characterName": "빛 따라 걷는 사람",
+      "oneLineConcept": "예쁜 순간을 따라 천천히 걷는 코스",
+      "axisValues": { "crowdTolerance": -0.6, "experienceMode": -0.6, "rationaleStyle": 0.75, "scheduleRigidity": -0.7 },
+      "overrides": []
+    },
+    "ESTP": {
+      "characterName": "현장 승부사",
+      "oneLineConcept": "바로 부딪히며 즐기는 액티브한 코스",
+      "axisValues": { "crowdTolerance": 0.8, "experienceMode": -0.7, "rationaleStyle": -0.65, "scheduleRigidity": -0.75 },
+      "overrides": []
+    },
+    "ESFP": {
+      "characterName": "핫플 정복러",
+      "oneLineConcept": "오늘 제일 핫한 곳부터 도는 코스",
+      "axisValues": { "crowdTolerance": 0.85, "experienceMode": -0.65, "rationaleStyle": 0.7, "scheduleRigidity": -0.7 },
+      "overrides": []
+    }
+  },
+
+  "evaluationTargets": {
+    "typeDifferentiation": {
+      "metric": "동일 입력에 대한 16유형 코스 장소 집합의 평균 Jaccard 유사도",
+      "target": "0.35 이상 0.60 이하",
+      "failureMeaning": { "above": "MBTI가 작동하지 않음", "below": "MBTI가 개인 취향을 덮고 있음" }
+    },
+    "singleAxisIsolation": {
+      "metric": "한 글자만 다른 유형 쌍의 결과 차이가 해당 축 방향으로만 움직이는지",
+      "pairs": [["ENFP", "INFP"], ["INFJ", "INFP"], ["INFP", "INTP"], ["INFJ", "INFP"]],
+      "target": "의도하지 않은 축의 지표 변화가 10% 이내"
+    },
+    "factuality": {
+      "metric": "후보군에 없는 장소 또는 후보에 없던 가격·영업시간의 생성 건수",
+      "target": "0건"
+    },
+    "evidenceCoverage": {
+      "metric": "why.tasteEvidence가 1개 이상인 정류장의 비율",
+      "target": "100%"
+    }
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "fixtureId": "taste-b-foodie-value",
+  "note": "합성 데이터입니다. 실제 상호·가격이 아니며 프롬프트 회귀 테스트 용도로만 사용합니다.",
+  "description": "미식·가성비 중심 취향. 저장한 영상 대부분이 내돈내산 맛집과 노포. 취향 벡터에 전시·체험 신호가 거의 없어 experienceMode 양수(N) 유형이 무리한 이색 장소를 끼워 넣는지 확인하는 대조군이다.",
+  "user": {
+    "mbti": "{{INJECTED}}",
+    "tasteVectorConfidence": "high",
+    "tasteVector": {
+      "categories": {
+        "restaurant": 0.92,
+        "cafe_dessert": 0.48,
+        "travel_attraction": 0.26,
+        "culture_exhibition": 0.08,
+        "activity_experience": 0.05
+      },
+      "features": {
+        "value": 0.88,
+        "access": 0.66,
+        "operation": 0.52,
+        "atmosphere": 0.3,
+        "view_photo": 0.18
+      },
+      "audiences": ["couple", "budget_seeker", "local_explorer"],
+      "evidence": [
+        { "tag": "가성비맛집", "sourceVideoId": "rl_1a77", "count": 5 },
+        { "tag": "내돈내산", "sourceVideoId": "rl_1a77", "count": 4 },
+        { "tag": "을지로맛집", "sourceVideoId": "tk_60b3", "count": 3 },
+        { "tag": "노포", "sourceVideoId": "rl_8d41", "count": 3 },
+        { "tag": "역세권", "sourceVideoId": "tk_60b3", "count": 2 },
+        { "tag": "또간집", "sourceVideoId": "rl_8d41", "count": 2 }
+      ]
+    },
+    "constraints": {
+      "region": "을지로",
+      "date": "2026-09-26",
+      "timeRange": "17:00-23:00",
+      "budgetPerPerson": 40000
+    }
+  },
+  "similarUsers": { "cohortSize": 688, "similarity": 0.71 },
+  "candidatePlaces": [
+    {
+      "placeId": "pl_b01",
+      "title": "을지로 노포 골뱅이집",
+      "category": "restaurant",
+      "subcategory": "술집",
+      "location": { "name": "을지로3가 골목", "address": null, "nearestStation": "을지로3가", "regionTags": ["을지로"] },
+      "price": { "amounts": [16000], "perPerson": 16000, "priceLevel": "low", "discount": null },
+      "features": ["가성비", "내돈내산", "역세권", "시끌벅적"],
+      "normalizedHashtags": ["을지로맛집", "노포", "가성비맛집"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "평일 15분", "accessibility": null },
+      "openingHours": "16:00-23:00",
+      "cautions": ["카드 결제 불가", "주차 불가"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.79, "cohortRank": 1 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#을지로노포" }]
+    },
+    {
+      "placeId": "pl_b02",
+      "title": "을지로 조용한 한상차림",
+      "category": "restaurant",
+      "subcategory": "한식",
+      "location": { "name": "을지로4가", "address": null, "nearestStation": "을지로4가", "regionTags": ["을지로"] },
+      "price": { "amounts": [24000], "perPerson": 24000, "priceLevel": "mid", "discount": null },
+      "features": ["조용한", "아늑한", "예약", "가격 대비"],
+      "normalizedHashtags": ["을지로맛집", "한식"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "없음", "accessibility": null },
+      "openingHours": "11:30-21:30",
+      "cautions": ["브레이크타임 15:00-17:00"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.57, "cohortRank": 6 },
+      "sourceEvidence": [{ "source": "transcript", "text": "혼잡하지 않아서 대화하기 좋았어요" }]
+    },
+    {
+      "placeId": "pl_b03",
+      "title": "힙지로 컨셉 바",
+      "category": "restaurant",
+      "subcategory": "술집",
+      "location": { "name": "을지로3가", "address": null, "nearestStation": "을지로3가", "regionTags": ["을지로"] },
+      "price": { "amounts": [32000], "perPerson": 32000, "priceLevel": "mid", "discount": null },
+      "features": ["이색", "컨셉", "핫플", "이국적인"],
+      "normalizedHashtags": ["힙지로", "이색데이트", "요즘핫한곳"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "주말 30분", "accessibility": null },
+      "openingHours": "18:00-02:00",
+      "cautions": ["간판 없음", "노키즈존"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.61, "cohortRank": 4 },
+      "sourceEvidence": [{ "source": "caption", "text": "간판 없는 바 찾아가는 재미" }]
+    },
+    {
+      "placeId": "pl_b04",
+      "title": "노포 스타일 경양식집",
+      "category": "restaurant",
+      "subcategory": "양식",
+      "location": { "name": "을지로2가", "address": null, "nearestStation": "을지로입구", "regionTags": ["을지로"] },
+      "price": { "amounts": [14000], "perPerson": 14000, "priceLevel": "low", "discount": null },
+      "features": ["가성비", "또간집", "재방문", "역세권"],
+      "normalizedHashtags": ["가성비맛집", "또간집"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "없음", "accessibility": null },
+      "openingHours": "11:00-21:00",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.74, "cohortRank": 2 },
+      "sourceEvidence": [{ "source": "transcript", "text": "세 번째 방문인데 가격이 그대로예요" }]
+    },
+    {
+      "placeId": "pl_b05",
+      "title": "을지로 옥상 커피",
+      "category": "cafe_dessert",
+      "subcategory": "카페",
+      "location": { "name": "을지로3가", "address": null, "nearestStation": "을지로3가", "regionTags": ["을지로"] },
+      "price": { "amounts": [7000], "perPerson": 7000, "priceLevel": "low", "discount": null },
+      "features": ["루프탑", "야경", "가성비", "감성"],
+      "normalizedHashtags": ["을지로카페", "루프탑카페", "야경맛집"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "주말 10분", "accessibility": "계단만 있음" },
+      "openingHours": "12:00-23:00",
+      "cautions": ["엘리베이터 없음"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.69, "cohortRank": 3 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#을지로야경" }]
+    },
+    {
+      "placeId": "pl_b06",
+      "title": "조용한 골목 티룸",
+      "category": "cafe_dessert",
+      "subcategory": "디저트",
+      "location": { "name": "을지로4가 골목", "address": null, "nearestStation": "을지로4가", "regionTags": ["을지로"] },
+      "price": { "amounts": [11000], "perPerson": 11000, "priceLevel": "low", "discount": null },
+      "features": ["조용한", "프라이빗", "아늑한", "숨은맛집"],
+      "normalizedHashtags": ["숨은맛집", "티룸"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "없음", "accessibility": null },
+      "openingHours": "13:00-22:00",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.52, "cohortRank": 8 },
+      "sourceEvidence": [{ "source": "transcript", "text": "말소리가 잘 안 들릴 만큼 조용해요" }]
+    },
+    {
+      "placeId": "pl_b07",
+      "title": "인쇄골목 야간 산책 코스",
+      "category": "travel_attraction",
+      "subcategory": "산책",
+      "location": { "name": "을지로 인쇄골목", "address": null, "nearestStation": "을지로3가", "regionTags": ["을지로"] },
+      "price": { "amounts": [], "perPerson": 0, "priceLevel": "free", "discount": null },
+      "features": ["야경", "숨은명소", "도보", "이색"],
+      "normalizedHashtags": ["을지로산책", "숨은명소"],
+      "constraints": { "parking": "불가", "reservation": "불필요", "waiting": "없음", "accessibility": null },
+      "openingHours": "24시간",
+      "cautions": ["밤에는 조명이 어두운 구간 있음"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.46, "cohortRank": 10 },
+      "sourceEvidence": [{ "source": "caption", "text": "밤에 걸으면 분위기가 달라요" }]
+    },
+    {
+      "placeId": "pl_b08",
+      "title": "을지로 팝업 전시 공간",
+      "category": "culture_exhibition",
+      "subcategory": "팝업",
+      "location": { "name": "을지로2가", "address": null, "nearestStation": "을지로입구", "regionTags": ["을지로"] },
+      "price": { "amounts": [], "perPerson": 0, "priceLevel": "free", "discount": null },
+      "features": ["팝업", "무료", "이색", "컨셉"],
+      "normalizedHashtags": ["팝업스토어", "무료전시"],
+      "constraints": { "parking": "불가", "reservation": "불필요", "waiting": "없음", "accessibility": "엘리베이터" },
+      "openingHours": "11:00-20:00",
+      "cautions": ["기간 한정 운영"],
+      "sponsored": true,
+      "similarUserSignal": { "likeRate": 0.38, "cohortRank": 14 },
+      "sourceEvidence": [{ "source": "caption", "text": "브랜드 초청으로 방문했습니다" }]
+    }
+  ],
+  "expectations": {
+    "byAxis": {
+      "crowdTolerance.negative": { "shouldPreferPlaceIds": ["pl_b02", "pl_b06"], "maxStops": 3 },
+      "crowdTolerance.positive": { "shouldPreferPlaceIds": ["pl_b01", "pl_b03"] },
+      "rationaleStyle.negative": { "requireNumericMentionsPerStop": 2 },
+      "rationaleStyle.positive": { "requireSensoryMentionPerStop": 1 },
+      "experienceMode.positive": {
+        "shouldIncludeAtLeastOneOf": ["pl_b03", "pl_b07", "pl_b08"],
+        "note": "단 pl_b08은 tasteVector 근거가 없으므로 선택 시 tasteEvidence를 만들 수 없어야 정상이다. 이 후보가 코스에 들어가면 L0-3 위반으로 실패 처리한다."
+      }
+    },
+    "globalInvariants": {
+      "sponsoredNoticeRequiredFor": ["pl_b08"],
+      "mustNotSelectWithoutTasteEvidence": ["pl_b08"],
+      "cautionsMustPropagate": { "pl_b01": ["카드 결제 불가", "주차 불가"], "pl_b05": ["엘리베이터 없음"] },
+      "budgetPerPersonMax": 40000
+    }
+  }
+}

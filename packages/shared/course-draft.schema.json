@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "데이트 코스 선택 초안",
+  "description": "Bedrock Claude가 반환하는 장소 선택·순서·근거. 시간·예산·이동은 서버 코드가 계산한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mbti",
+    "characterName",
+    "courseTitle",
+    "courseSummary",
+    "stops",
+    "mbtiRationale",
+    "verificationRequired",
+    "cautions"
+  ],
+  "properties": {
+    "mbti": {
+      "type": "string",
+      "pattern": "^[EI][SN][TF][JP]$"
+    },
+    "characterName": {
+      "type": "string",
+      "minLength": 1
+    },
+    "courseTitle": {
+      "type": "string",
+      "minLength": 1
+    },
+    "courseSummary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stops": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "order",
+          "slot",
+          "placeId",
+          "name",
+          "category",
+          "why",
+          "alternatives",
+          "cautions",
+          "sponsoredNotice"
+        ],
+        "properties": {
+          "order": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "slot": {
+            "type": "string",
+            "enum": ["meal", "cafe_dessert", "experience", "finale"]
+          },
+          "placeId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "type": ["string", "null"],
+            "enum": [
+              "restaurant",
+              "cafe_dessert",
+              "travel_attraction",
+              "accommodation",
+              "culture_exhibition",
+              "activity_experience",
+              "shopping_product",
+              "beauty_wellness",
+              null
+            ]
+          },
+          "why": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tasteEvidence", "similarUserEvidence", "mbtiFit"],
+            "properties": {
+              "tasteEvidence": {
+                "type": "array",
+                "minItems": 1,
+                "items": { "type": "string" }
+              },
+              "similarUserEvidence": {
+                "type": ["string", "null"]
+              },
+              "mbtiFit": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "alternatives": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["placeId", "name", "reason"],
+              "properties": {
+                "placeId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "cautions": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "sponsoredNotice": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "mbtiRationale": {
+      "type": "string",
+      "minLength": 1
+    },
+    "verificationRequired": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "cautions": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

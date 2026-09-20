@@ -26,6 +26,8 @@ export type ProblemCode =
   | 'login-rate-limited'
   | 'oauth-failed'
   | 'oauth-email-required'
+  | 'recommendation-failed'
+  | 'recommendation-unavailable'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -47,6 +49,8 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'login-rate-limited':       { status: 429, title: 'Too many attempts',          detail: '로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.' },
   'oauth-failed':             { status: 400, title: 'Sign-in did not complete',   detail: 'That sign-in did not complete. Try again.' },
   'oauth-email-required':     { status: 409, title: 'Email permission required',  detail: 'Gaja needs your email address so you can always get back in. Allow email access and try again.' },
+  'recommendation-failed':    { status: 422, title: 'No valid course found',       detail: 'The recommendation could not satisfy every required constraint.' },
+  'recommendation-unavailable': { status: 503, title: 'Recommendation unavailable', detail: 'The recommendation service is temporarily unavailable.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 
