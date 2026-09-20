@@ -239,13 +239,24 @@ async function finishIn(
 ): Promise<string[]> {
   const places = input.extraction?.places ?? [];
 
-  await c.query(`update reels set extracted = $2, status = $3 where id = $1`, [
-    reelId,
-    // `pg` serialises a plain object into jsonb; null stays SQL NULL. Same
-    // handling as lib/research/store.ts, which writes four jsonb columns.
-    input.extraction,
-    reelStatus(input.extraction),
-  ]);
+  // Scoped to the user as well as the id, because the venues below are written
+  // under `input.userId` and a caller that paired a reelId with the wrong user
+  // would otherwise file one person's places under another's. Narrowing the
+  // UPDATE turns that from a silent mis-write into zero rows and the throw below.
+  const updated = await c.query(
+    `update reels set extracted = $3, status = $4 where id = $1 and user_id = $2`,
+    [
+      reelId,
+      input.userId,
+      // `pg` serialises a plain object into jsonb; null stays SQL NULL. Same
+      // handling as lib/research/store.ts, which writes four jsonb columns.
+      input.extraction,
+      reelStatus(input.extraction),
+    ],
+  );
+  if (updated.rowCount === 0) {
+    throw new Error(`reel ${reelId} is not user ${input.userId}'s, or no longer exists`);
+  }
 
   // One statement rather than a loop: N round trips inside a transaction hold a
   // pooled client open for N latencies, and a ten-venue listicle is the normal

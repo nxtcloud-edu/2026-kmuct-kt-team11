@@ -133,6 +133,23 @@ export function categoryFromTitle(title: string | null): PlaceCategory | null {
 }
 
 /**
+ * A caption's lead-in: its first non-empty line, and only that.
+ *
+ * The same thing `captionTitle` in lib/extract/caption-grammar.ts reads, and it
+ * is here for the case that one returns nothing — a caption with no numbered
+ * entries has no title by that parser's rule, but it still has a first line, and
+ * the first line is where a creator writes what the reel is about.
+ */
+function leadIn(caption: string | null): string | null {
+  if (!caption) return null;
+  for (const line of caption.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+/**
  * Run one pass. Throws `InboxBreakerTrippedError` when the breaker is up, so
  * every caller has to decide what to do about it rather than inheriting a
  * summary that quietly says zero.
@@ -257,7 +274,12 @@ export async function runIngestPass(
         const resolved =
           extraction.places.length > 0
             ? await resolvePlaceCandidates(extraction.places, {
-                category: categoryFromTitle(extraction.title ?? clip.caption),
+                // The TITLE, or failing that the caption's first line — which is
+                // what a title is. Never the whole caption: a 1,200-character
+                // listicle that mentions 카페 once in a venue's description would
+                // make every venue in it a café, and this is the value that ends
+                // up in a NOT NULL column reading as a fact.
+                category: categoryFromTitle(extraction.title ?? leadIn(clip.caption)),
               })
             : [];
         const placeIds = placeIdsByOrdinal(resolved);
@@ -279,7 +301,16 @@ export async function runIngestPass(
         // The row stays, `failed`, with its caption — a later pass re-reads the
         // clip and re-analyses it, because `claim.status === 'failed'` is
         // explicitly not an ack above.
-        await markReelFailed(claim.reelId);
+        //
+        // Its own try, so that a database that is itself unreachable does not
+        // replace the error that explains what actually broke. The original is
+        // the one worth keeping; a row left on `pending` ages out of the home
+        // screen's window on its own (lib/ingest/status.ts).
+        try {
+          await markReelFailed(claim.reelId);
+        } catch (marking) {
+          console.error(`[ingest] clip ${clip.reelVideoId} could not be marked failed:`, marking);
+        }
         throw e;
       }
 

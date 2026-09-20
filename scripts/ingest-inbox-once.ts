@@ -71,6 +71,12 @@ async function main(): Promise<void> {
     // 3. Resolve. Network calls, deliberately OUTSIDE saveReel's transaction —
     //    holding a pooled client across a geocode would be the bug the pool of
     //    one on Vercel punishes hardest.
+    //
+    //    `clip.category` is now the FALLBACK, not the answer. The extractor
+    //    classifies each venue with its own confidence
+    //    (`PlaceCandidate.category`), and the value typed into the clips JSON
+    //    only covers the entries it declined to classify. Leaving it in the file
+    //    is still worth it: a hand-fed clip is one a human already looked at.
     let placeIds: Map<number, string> | undefined;
     if (extraction && extraction.places.length > 0) {
       const resolved = await resolvePlaceCandidates(extraction.places, {
