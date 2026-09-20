@@ -44,6 +44,14 @@ const MODEL = 'gemini-3.5-flash';
  * realistic ceiling — saved places, nearby, two researches, a course — and
  * anything past that is a loop, not a plan. The cap is a hard stop rather than a
  * warning because the user is watching a spinner while it spends.
+ *
+ * `discover_places` fits without raising it: the path it exists for is saved
+ * places (1), nearby (2), discovery (3), answer (4). That is the point of
+ * telling the model to try the free tools first — the expensive call arrives
+ * when there are still steps to spend on saying what it found. The cap on
+ * discovery itself is not here but in `lib/agent/tools.ts`, which allows one per
+ * turn and refuses to start one late; a step budget cannot express "this
+ * particular step costs thirty seconds and real money".
  */
 const MAX_STEPS = 6;
 
@@ -181,6 +189,11 @@ export async function* runAgent(
 
         yield { type: 'status', label: outcome.label };
         if (outcome.course) yield { type: 'course', course: outcome.course };
+        // Before `sources`, because the suggestion cards carry their own links
+        // and the receipts list underneath them is the summary, not the lead.
+        if (outcome.suggestions?.length) {
+          yield { type: 'suggestions', suggestions: outcome.suggestions };
+        }
         if (outcome.sources?.length) yield { type: 'sources', sources: outcome.sources };
         yield { type: 'status', label: outcome.label, done: true };
 

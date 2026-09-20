@@ -347,20 +347,148 @@ export async function getSavedPlaceDetailForUser(
  * by every later one. Narrowed field by field rather than cast.
  */
 function captionEntry(extras: ReelExtras | null): CaptionEntry | null {
-  if (!extras || extras.ordinal === null || !Array.isArray(extras.places)) return null;
+  if (!extras) return null;
+  return pickCaptionEntry(extras.ordinal, extras.places);
+}
 
-  const hit = (extras.places as unknown[]).find(
+/**
+ * THE ONE ordinal-match rule, shared by the detail read above and the bulk reads
+ * below.
+ *
+ * It was inlined in `captionEntry` until the assistant needed the same fields for
+ * thirty rows at once. A second copy of "find the entry whose ordinal equals this
+ * row's" is precisely the drift this file's own comment warns about — one copy
+ * matching on ordinal and the other, written in a hurry, on array position, with
+ * venue 4's opening hours showing up on venue 3's card in exactly one of the two
+ * surfaces.
+ */
+function pickCaptionEntry(ordinal: number | null, places: unknown): CaptionEntry | null {
+  if (ordinal === null || !Array.isArray(places)) return null;
+
+  const hit = (places as unknown[]).find(
     (p): p is Record<string, unknown> =>
-      typeof p === 'object' && p !== null && (p as { ordinal?: unknown }).ordinal === extras.ordinal,
+      typeof p === 'object' && p !== null && (p as { ordinal?: unknown }).ordinal === ordinal,
   );
   if (!hit) return null;
 
   const str = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v : null);
   return {
-    ordinal: extras.ordinal,
+    ordinal,
     name_alt: str(hit.name_alt),
     handle: str(hit.handle),
     hours_raw: str(hit.hours_raw),
     menu_raw: str(hit.menu_raw),
   };
+}
+
+/* ── Caption claims, in bulk ──────────────────────────────────────────────── */
+
+/**
+ * `saved_place_id -> CaptionEntry`, for many rows in one round trip.
+ *
+ * WHY THIS EXISTS. `hours_raw` has been stored on every reel-sourced venue since
+ * 20260920000005 and, until now, exactly one surface could read it: the place
+ * detail screen, one row at a time. So the assistant — the surface people
+ * actually ask "저녁 9시 반에 열려 있는 데 있어?" — could not answer, because
+ * `listSavedPlacesForUser` returns `SavedPlace`, and `SavedPlace` has no hours.
+ * It is not that the data was missing; it is that nothing exposed it.
+ *
+ * SEPARATE FROM `serialiseSavedPlace`, ON PURPOSE, and for the reason
+ * `CaptionEntry`'s own comment gives at length: a `SavedPlace` is Gaja's record
+ * of a venue and a `CaptionEntry` is a creator's claim about it. Merging them
+ * would put `hours_raw` one field access from `place.address` and invite a caller
+ * to render them as the same kind of fact. They are not, and the caller here is a
+ * language model, which is the single worst reader to hand an ambiguous
+ * provenance to.
+ *
+ * VISIBILITY IS RE-CHECKED rather than inherited from whoever produced the ids.
+ * The caller today passes ids straight out of `listSavedPlacesForUser`, which
+ * already filtered them — but this function takes a bare array of uuids, and a
+ * later caller that builds that array some other way must not be able to read a
+ * stranger's caption by guessing.
+ */
+export async function captionEntriesForSavedPlaces(
+  savedPlaceIds: readonly string[],
+  userId: string,
+): Promise<Map<string, CaptionEntry>> {
+  const ids = savedPlaceIds.filter((id) => UUID.test(id));
+  const out = new Map<string, CaptionEntry>();
+  if (ids.length === 0) return out;
+
+  const rows = await query<{ id: string; ordinal: number | null; places: unknown }>(
+    `select sp.id, sp.ordinal, r.extracted -> 'places' as places
+       from saved_places sp
+       join reels r on r.id = sp.reel_id
+      where sp.id = any($1::uuid[])
+        and sp.ordinal is not null
+        and sp.status <> 'rejected'
+        and (sp.user_id = $2
+             or sp.group_id in (select group_id from group_members where user_id = $2))`,
+    [ids, userId],
+  );
+
+  for (const row of rows) {
+    const entry = pickCaptionEntry(row.ordinal, row.places);
+    if (entry) out.set(row.id, entry);
+  }
+  return out;
+}
+
+/** The hours a caption claimed for a place, and the post that claimed them. */
+export type HoursClaim = {
+  /** Raw and unparsed — `매일 11:00-22:30 금,토 11:00-23:00`. Never a schedule. */
+  hours_raw: string;
+  /** The reel the claim was read out of. Null when that reel was shared without a URL. */
+  source_url: string | null;
+};
+
+/**
+ * `place_id -> HoursClaim`, for places the CALLER'S USER HAS NOT SAVED.
+ *
+ * This is the awkward one, so the reasoning is written down rather than left to
+ * be rediscovered. `listPlacesNearby` returns rows from `places` that the user
+ * has explicitly NOT saved — that is its whole definition — so there is no reel
+ * of theirs to read hours from. The only caption that ever described these venues
+ * belongs to somebody else's reel.
+ *
+ * WHAT CROSSES THE USER BOUNDARY, AND WHY IT IS ALLOWED TO. Two strings: the raw
+ * hours text, and the Instagram URL it was read from. Both are public content —
+ * a caption on a public reel, and the link to that reel. No user id, no handle,
+ * no saved-place id, and nothing about WHO saved it. `places` is already a shared
+ * table and `listPlacesNearby` already tells you a venue exists because somebody
+ * else saved it; this adds a public sentence about that venue and its receipt.
+ *
+ * `distinct on` takes the most recently shared reel per place. Two creators
+ * disagreeing about a café's closing time is ordinary, and the newer claim is the
+ * better prior — which is all either of them is.
+ */
+export async function hoursClaimsForPlaces(
+  placeIds: readonly string[],
+): Promise<Map<string, HoursClaim>> {
+  const ids = placeIds.filter((id) => UUID.test(id));
+  const out = new Map<string, HoursClaim>();
+  if (ids.length === 0) return out;
+
+  const rows = await query<{
+    place_id: string;
+    ordinal: number | null;
+    places: unknown;
+    source_url: string | null;
+  }>(
+    `select distinct on (sp.place_id)
+            sp.place_id, sp.ordinal, r.extracted -> 'places' as places, r.source_url
+       from saved_places sp
+       join reels r on r.id = sp.reel_id
+      where sp.place_id = any($1::uuid[])
+        and sp.ordinal is not null
+        and sp.status <> 'rejected'
+      order by sp.place_id, r.shared_at desc, r.id desc`,
+    [ids],
+  );
+
+  for (const row of rows) {
+    const entry = pickCaptionEntry(row.ordinal, row.places);
+    if (entry?.hours_raw) out.set(row.place_id, { hours_raw: entry.hours_raw, source_url: row.source_url });
+  }
+  return out;
 }

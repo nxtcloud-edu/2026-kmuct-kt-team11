@@ -19,11 +19,21 @@ import type { AgentEvent } from '@/lib/agent/types';
  * runtime with no configuration, and `lib/db` needs `pg` — a TCP socket the
  * edge runtime has no way to open.
  *
- * `maxDuration` is 120s: an Apify run inside a turn is tens of seconds and the
- * Vercel default would cut a slow one off mid-answer. Well inside the 300s
- * platform ceiling.
+ * `maxDuration` is 180s, raised from 120 when `discover_places` joined the tool
+ * set. The arithmetic: that tool runs TWO Apify actors concurrently plus up to
+ * fourteen extractions — the sibling route that does nothing else
+ * (`app/api/saved-places/[saved_place_id]/nearby/route.ts`) budgets a full 120s
+ * for exactly that work — and this route still owes a model call afterwards to
+ * write the answer, on top of whatever the turn already spent getting there. At
+ * 120 the worst realistic turn is killed mid-search, and a killed function does
+ * not get to apologise: the sheet's spinner simply stops.
+ *
+ * Raising the ceiling is only half of it, because a budget nothing checks is a
+ * budget nothing keeps. `lib/agent/tools.ts` refuses to START a discovery more
+ * than 45s into a turn, which is what makes 180 an upper bound rather than a
+ * hope. Still well inside the 300s platform ceiling.
  */
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const Body = z.object({
   messages: z

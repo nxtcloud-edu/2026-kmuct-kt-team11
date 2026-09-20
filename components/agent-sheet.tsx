@@ -13,8 +13,9 @@ import {
   useTextToSpeech,
 } from '@/lib/speech';
 import type { RecognizerTap, SpeechError, SynthesizerTap } from '@/lib/speech';
-import { Button } from '@/components/surface';
-import type { AgentEvent, AgentMessage, Course, SourceLink } from '@/lib/agent/types';
+import { Button, Chip } from '@/components/surface';
+import { ApiError, apiFetch } from '@/lib/api/client';
+import type { AgentEvent, AgentMessage, Course, PlaceSuggestion, SourceLink } from '@/lib/agent/types';
 
 /**
  * The assistant sheet.
@@ -49,6 +50,8 @@ type Turn = {
   text: string;
   course?: Course;
   sources?: SourceLink[];
+  /** Venues the agent found in strangers' posts. Savable, one by one, from the turn. */
+  suggestions?: PlaceSuggestion[];
   failed?: boolean;
 };
 
@@ -560,6 +563,9 @@ export function AgentSheet({
           case 'sources':
             patch((t) => ({ ...t, sources: event.sources }));
             break;
+          case 'suggestions':
+            patch((t) => ({ ...t, suggestions: event.suggestions }));
+            break;
           case 'error':
             // Spoken too. Someone who asked out loud and is not looking at the
             // screen has to be told the answer is not coming.
@@ -786,7 +792,7 @@ function Header({
             the turn, but the header is what someone glancing at the top of the
             sheet reads, and "통화 중" is the one word that explains why the
             composer has gone. */}
-        <p className="text-secondary" style={{ font: 'var(--type-byline)' }}>
+        <p className="text-secondary" style={{ font: 'var(--type-caption)' }}>
           {calling ? '통화 중' : mbti ? `${mbti} 얼굴을 하고 있어요` : '저장한 곳을 보고 답해요'}
         </p>
       </div>
@@ -856,7 +862,7 @@ function Bubble({ turn, avatar }: { turn: Turn; avatar: string | null }) {
   }
 
   // Nothing to draw yet — the status line above is carrying this turn.
-  if (!turn.text && !turn.course && !turn.sources?.length) return null;
+  if (!turn.text && !turn.course && !turn.sources?.length && !turn.suggestions?.length) return null;
 
   return (
     <li className="flex gap-[var(--space-8)]">
@@ -879,6 +885,7 @@ function Bubble({ turn, avatar }: { turn: Turn; avatar: string | null }) {
         ) : null}
 
         {turn.course ? <CourseCard course={turn.course} /> : null}
+        {turn.suggestions?.length ? <Suggestions items={turn.suggestions} /> : null}
         {turn.sources?.length ? <Sources sources={turn.sources} /> : null}
       </div>
     </li>
@@ -981,13 +988,140 @@ function Sources({ sources }: { sources: SourceLink[] }) {
             >
               {s.title || s.url}
             </a>
-            <span className="ml-[var(--space-5)] text-tertiary" style={{ font: 'var(--type-byline)' }}>
+            <span className="ml-[var(--space-5)] text-tertiary" style={{ font: 'var(--type-caption)' }}>
               {s.posted_at}
             </span>
           </li>
         ))}
       </ul>
     </details>
+  );
+}
+
+/* ── Suggestions ──────────────────────────────────────────────────────────── */
+
+/**
+ * Venues the agent found by reading strangers' posts, each savable on its own.
+ *
+ * THE HONESTY FRAME IS THE SAME ONE nearby-screen.tsx AND place-detail.tsx USE,
+ * and it is carried by three rules rather than by tone:
+ *
+ *   * PROVENANCE ARRIVES BEFORE CONTENT. The 미확인 chip and the sentence saying
+ *     whose words these are sit above the first name, not under the last one.
+ *   * EVERY ROW LINKS BACK. `source_url` is non-null all the way down the
+ *     pipeline, so there is no name here without a receipt. A scraped venue with
+ *     no link is an unattributable claim and must not be renderable.
+ *   * IT IS NOT STYLED DOWN. Names stay `--ink` at a readable size. A reader who
+ *     cannot read the result is not being protected.
+ *
+ * Flat, per the depth budget: the surface step and the hairlines do the
+ * grouping. The sheet is already the third and last shadow.
+ */
+function Suggestions({ items }: { items: PlaceSuggestion[] }) {
+  // Keyed by `PlaceSuggestion.key`, which is stable within a turn. Holding this
+  // per row rather than one flag for the block is what lets four saves proceed
+  // independently — a failure on the second must not disable the other three.
+  const [state, setState] = useState<Record<string, 'saving' | 'saved' | 'held' | 'failed'>>({});
+
+  const save = useCallback(async (item: PlaceSuggestion) => {
+    setState((s) => ({ ...s, [item.key]: 'saving' }));
+    try {
+      await apiFetch('/agent/suggestions', {
+        method: 'POST',
+        body: {
+          name: item.name,
+          name_alt: item.name_alt,
+          address: item.address,
+          category: item.category,
+          source_url: item.source_url,
+          source_title: item.source_title,
+        },
+      });
+      setState((s) => ({ ...s, [item.key]: 'saved' }));
+    } catch (err) {
+      // Already in their places is a SUCCESS from where the reader sits: the
+      // thing they wanted to be true is true. Only a real failure says failed.
+      const held = err instanceof ApiError && err.is('duplicate-saved-place');
+      setState((s) => ({ ...s, [item.key]: held ? 'held' : 'failed' }));
+    }
+  }, []);
+
+  return (
+    <section className="mt-[var(--space-9)] rounded-[var(--radius-lg)] bg-surface-1 p-[var(--space-9)]">
+      <div className="flex flex-wrap items-center gap-[var(--space-5)]">
+        <h3 style={{ font: 'var(--type-meta)' }}>찾은 곳 {items.length}곳</h3>
+        <Chip>미확인</Chip>
+      </div>
+
+      {/* PROVENANCE BEFORE CONTENT — the same sentence and the same placement as
+          the nearby screen, because it is the same claim from the same kind of
+          source, and two screens phrasing it differently would make one of them
+          look like the careful one. */}
+      <p className="mt-[var(--space-5)] text-secondary" style={{ font: 'var(--type-caption)' }}>
+        다른 사람이 쓴 글에서 뽑아낸 이름이에요. 가자가 확인한 곳이 아니에요.
+      </p>
+
+      <ul className="mt-[var(--space-8)] flex flex-col">
+        {items.map((item) => {
+          const phase = state[item.key];
+          return (
+            <li
+              key={item.key}
+              className="flex items-start gap-[var(--space-7)] border-t border-hairline
+                         py-[var(--space-8)] first:border-t-0 first:pt-0"
+            >
+              <div className="min-w-0 flex-1">
+                <p style={{ font: 'var(--type-body)' }}>
+                  {item.name}
+                  {item.name_alt ? (
+                    <span className="ml-[var(--space-5)] text-secondary" style={{ font: 'var(--type-meta)' }}>
+                      {item.name_alt}
+                    </span>
+                  ) : null}
+                </p>
+
+                {/* An address the post actually printed, or the reason there is
+                    none. The absence is a fact about what we can do with the
+                    row — no address means no pin — so it is stated, not hidden. */}
+                <p className="mt-[var(--space-3)] text-secondary" style={{ font: 'var(--type-caption)' }}>
+                  {item.address ?? '글에 주소가 적혀 있지 않아요'}
+                </p>
+
+                <a
+                  href={item.source_url}
+                  target="_blank"
+                  // noreferrer as well as noopener: an outbound link to a
+                  // stranger's post should not carry which screen we came from.
+                  rel="noopener noreferrer"
+                  className="mt-[var(--space-5)] inline-flex text-secondary underline"
+                  style={{ font: 'var(--type-caption)' }}
+                >
+                  원문 보기
+                </a>
+              </div>
+
+              {/* Saved and held both end in a plain word rather than a button
+                  that would do nothing. `failed` stays a button, because the
+                  remedy for a failed save is to try it again. */}
+              {phase === 'saved' || phase === 'held' ? (
+                <span className="shrink-0 self-center text-secondary" style={{ font: 'var(--type-meta)' }}>
+                  {phase === 'saved' ? '저장했어요' : '이미 있어요'}
+                </span>
+              ) : (
+                <Button
+                  type="button"
+                  className="shrink-0 self-center"
+                  disabled={phase === 'saving'}
+                  onClick={() => void save(item)}
+                >
+                  {phase === 'saving' ? '저장 중' : phase === 'failed' ? '다시 저장' : '저장'}
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
