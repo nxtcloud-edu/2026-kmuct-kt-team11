@@ -1,5 +1,6 @@
-import { queryOne } from './db';
+import { query, queryOne } from './db';
 import { ProblemError } from './problem';
+import type { PlaceCategory, SavedPlace, SavedPlaceStatus } from './api/types';
 
 export type SavedPlaceRow = {
   id: string;
@@ -35,24 +36,31 @@ export const SAVED_PLACE_SELECT = `
  *
  * `extracted` and `raw_caption` are deliberately never returned: extractor internals with
  * no client use.
+ *
+ * The `SavedPlace` return annotation is load-bearing: `lib/api/types.ts` mirrors
+ * openapi.yaml by hand, so this is what makes tsc catch the two drifting apart.
  */
-export function serialiseSavedPlace(r: SavedPlaceRow) {
+export function serialiseSavedPlace(r: SavedPlaceRow): SavedPlace {
   return {
     id: r.id,
+    // Every place column is nullable on the row type only because of the LEFT
+    // JOIN. In `places` they are NOT NULL (see the migration), so a non-null
+    // place_id guarantees the rest — a correlation tsc cannot see. `address` is
+    // the one genuinely nullable column and keeps its null.
     place: r.place_id
       ? {
           id: r.place_id,
-          name: r.place_name,
+          name: r.place_name!,
           name_alt: r.place_name_alt ?? [],
-          category: r.place_category,
-          lat: r.place_lat,
-          lng: r.place_lng,
+          category: r.place_category as PlaceCategory,
+          lat: r.place_lat!,
+          lng: r.place_lng!,
           address: r.place_address,
-          area: r.place_area,
+          area: r.place_area!,
         }
       : null,
     group_id: r.group_id,
-    status: r.status,
+    status: r.status as SavedPlaceStatus,
     confirmed: r.confirmed,
     hook: r.hook,
     source_url: r.source_url,
@@ -72,4 +80,25 @@ export async function assertGroupMember(groupId: string, userId: string): Promis
 
 export async function assertGroupOwner(groupId: string, userId: string): Promise<void> {
   if ((await assertGroupMember(groupId, userId)) !== 'owner') throw new ProblemError('forbidden');
+}
+
+/**
+ * Read path for Server Components. Server rendering talks to Postgres directly
+ * rather than fetching our own `/api/saved-places` — that would be an extra HTTP
+ * hop and a second copy of the auth check for no benefit.
+ *
+ * The route handler stays the contract for browsers; this is the same data for
+ * the server. Both go through `serialiseSavedPlace`, so the shape cannot fork.
+ */
+export async function listSavedPlacesForUser(userId: string, limit = 30) {
+  const rows = await query<SavedPlaceRow>(
+    `${SAVED_PLACE_SELECT}
+      where (sp.user_id = $1
+             or sp.group_id in (select group_id from group_members where user_id = $1))
+        and sp.status <> 'rejected'
+   order by sp.saved_at desc, sp.id desc
+      limit $2`,
+    [userId, limit],
+  );
+  return rows.map(serialiseSavedPlace);
 }
