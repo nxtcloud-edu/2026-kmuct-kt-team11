@@ -13,7 +13,63 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DB="${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
+
+# THE CALLER'S value, captured BEFORE any env file is sourced, because the files
+# below set DATABASE_URL too and we need to know which one the human chose.
+# Resolution order, highest first: the environment this was invoked with,
+# .env.remote (only under --remote), .env.local, then the local default.
+#
+# This used to read `DB="${DATABASE_URL:-<local default>}"` here and then
+# `export DATABASE_URL="$DB"` AFTER sourcing, which silently undid whatever the
+# files had set. A --remote run therefore polled production Instagram while
+# reading the LOCAL database's ingest_state — and refused to start, quoting a
+# breaker that had tripped on the laptop hours earlier and had nothing to do
+# with the account it was about to poll.
+CALLER_DB="${DATABASE_URL:-}"
+
+# Parsed HERE, before the env files are sourced, because the sourcing itself
+# branches on it. It used to live with the rail below, which is where it is
+# used second — and after the sourcing moved above the rail, that left it read
+# before it was set (`set -u` caught it).
+ALLOW_REMOTE=0
+for arg in "$@"; do
+  case "$arg" in --remote) ALLOW_REMOTE=1 ;; esac
+done
+
+# ── Credentials ──────────────────────────────────────────────────────────────
+# .env.local is not committed and is where the Instagram cookies, the Gemini key
+# and the Naver keys live. Sourced rather than parsed, as
+# scripts/verify-reel-thumbnail.sh does, so quoted values survive; `set -a`
+# exports what it defines. The watcher needs the whole set — the inbox cookies,
+# the model key for both rungs of the extraction ladder, and the geocoder — so
+# picking one variable out by grep the way verify-reel-asr.sh does would mean
+# five greps and a stale list.
+if [ -f "$ROOT/.env.local" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env.local"
+  set +a
+fi
+
+# ── Remote overrides ─────────────────────────────────────────────────────────
+# A --remote run has to be remote in EVERY service it touches, not just the one
+# named on the command line. Pointing DATABASE_URL at production while .env.local
+# still said SUPABASE_URL=127.0.0.1 wrote thumbnail OBJECTS to a laptop and
+# thumbnail PATHS to production, so every card rendered a broken image: the row
+# said a picture existed and the bucket it named had never heard of it.
+#
+# Sourced AFTER .env.local so it wins, and only under --remote so an ordinary
+# local run cannot accidentally reach production storage. Gitignored by .env*.
+if [ "$ALLOW_REMOTE" = 1 ] && [ -f "$ROOT/.env.remote" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . "$ROOT/.env.remote"
+  set +a
+  echo "sourced .env.remote — storage and database both point at production" >&2
+fi
+
+# Now, and only now, is DATABASE_URL final.
+DB="${CALLER_DB:-${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}}"
 
 # ── The rail (scripts/verify-reel-ingest.sh's, same reasoning) ────────────────
 # This writes users' reels and saved places, on a loop, unattended, from a
@@ -43,10 +99,6 @@ esac
 # true: this writes real users' reels and saved places, on a loop, unattended,
 # with whatever credentials .env.local happens to hold. Typing the flag is the
 # point — nobody reaches production by forgetting to set a variable.
-ALLOW_REMOTE=0
-for arg in "$@"; do
-  case "$arg" in --remote) ALLOW_REMOTE=1 ;; esac
-done
 
 case "$DB_HOST" in
   localhost|127.0.0.1|::1) ;;
@@ -92,20 +144,7 @@ if ! psql "$PROBE_DB" -q -c 'select 1' >/dev/null 2>&1; then
   exit 1
 fi
 
-# ── Credentials ──────────────────────────────────────────────────────────────
-# .env.local is not committed and is where the Instagram cookies, the Gemini key
-# and the Naver keys live. Sourced rather than parsed, as
-# scripts/verify-reel-thumbnail.sh does, so quoted values survive; `set -a`
-# exports what it defines. The watcher needs the whole set — the inbox cookies,
-# the model key for both rungs of the extraction ladder, and the geocoder — so
-# picking one variable out by grep the way verify-reel-asr.sh does would mean
-# five greps and a stale list.
-if [ -f "$ROOT/.env.local" ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "$ROOT/.env.local"
-  set +a
-fi
+
 export DATABASE_URL="$DB"
 
 # NOT CHECKED HERE, ON PURPOSE. IG_SESSION_ID and friends are verified by

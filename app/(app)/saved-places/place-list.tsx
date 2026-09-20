@@ -9,6 +9,7 @@ import { categoryLabel } from '@/lib/categories';
 import { reelThumb } from '@/lib/reel-thumb';
 import type { SavedPlace } from '@/lib/api/types';
 import type { PlaceGroup } from './model';
+import { UNRESOLVED_PLACE_LABEL } from '@/lib/place-copy';
 
 /**
  * The list half of the screen.
@@ -85,7 +86,7 @@ export function PlaceList({
                           className="block [overflow-wrap:anywhere]"
                           style={{ font: 'var(--type-card-title)' }}
                         >
-                          {row.place?.name ?? '장소를 확인하는 중이에요'}
+                          {row.place?.name ?? UNRESOLVED_PLACE_LABEL}
                         </span>
                         {row.place ? (
                           <span

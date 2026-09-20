@@ -7,6 +7,7 @@ import { buttonClassName, Card, Chip } from '@/components/surface';
 import { Icon, type IconName } from '@/components/icons';
 import { reelThumb } from '@/lib/reel-thumb';
 import type { SavedPlaceDetail, SiblingPlace } from '@/lib/saved-places';
+import { UNRESOLVED_PLACE_LABEL } from '@/lib/place-copy';
 
 /**
  * The place-detail view — what opens when you tap a saved place.
@@ -264,7 +265,7 @@ function SiblingRow({ sibling }: { sibling: SiblingPlace }) {
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate" style={{ font: 'var(--type-card-title)' }}>
-            {sibling.name ?? '장소를 확인하는 중이에요'}
+            {sibling.name ?? UNRESOLVED_PLACE_LABEL}
           </span>
           {sibling.area || category ? (
             <span className="mt-0.5 block text-secondary" style={{ font: 'var(--type-caption)' }}>
@@ -283,7 +284,7 @@ export function PlaceDetail({ detail }: { detail: SavedPlaceDetail }) {
   const { saved, caption, reel, siblings } = detail;
   const place = saved.place;
 
-  const name = place?.name ?? '장소를 확인하는 중이에요';
+  const name = place?.name ?? UNRESOLVED_PLACE_LABEL;
   const category = place?.category ? CATEGORY_KO[place.category] ?? place.category : null;
   const icon = place?.category ? CATEGORY_ICON[place.category] : undefined;
 

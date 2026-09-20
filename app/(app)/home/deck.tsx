@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedPlace } from '@/lib/api/types';
 import { reelThumb } from '@/lib/reel-thumb';
 import { Icon, type IconName } from '@/components/icons';
+import { UNRESOLVED_PLACE_LABEL } from '@/lib/place-copy';
 
 /**
  * The saved-places deck.
@@ -303,7 +304,7 @@ function CardFace({ saved }: { saved: SavedPlace }) {
         className="mt-[var(--space-9)]"
         style={{ font: 'var(--type-post-title)', letterSpacing: 'var(--post-title-ls)' }}
       >
-        {saved.place?.name ?? '장소를 확인하는 중이에요'}
+        {saved.place?.name ?? UNRESOLVED_PLACE_LABEL}
       </h3>
 
       {saved.place?.address || saved.place?.area ? (
