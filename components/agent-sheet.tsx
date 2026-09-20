@@ -4,8 +4,16 @@ import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { mbtiImage, isMbtiType } from '@/lib/mbti';
-import { useSpeechToText, useTextToSpeech, preferredSynthesizer } from '@/lib/speech';
-import type { SpeechError } from '@/lib/speech';
+import {
+  BrowserRecognizer,
+  preferredSynthesizer,
+  tapRecognizer,
+  tapSynthesizer,
+  useSpeechToText,
+  useTextToSpeech,
+} from '@/lib/speech';
+import type { RecognizerTap, SpeechError, SynthesizerTap } from '@/lib/speech';
+import { Button } from '@/components/surface';
 import type { AgentEvent, AgentMessage, Course, SourceLink } from '@/lib/agent/types';
 
 /**
@@ -30,8 +38,9 @@ import type { AgentEvent, AgentMessage, Course, SourceLink } from '@/lib/agent/t
  * so the sheet cross-fades in rather than sliding up — which also means
  * `prefers-reduced-motion` is already honoured by the token, not by a branch here.
  *
- * VOICE. One button in the composer, to the left of the field. It is
- * tap-to-talk, not a hands-free call, and the argument is in `toggleVoice`.
+ * VOICE. One button in the composer opens a CALL: hands-free, Korean, the
+ * assistant speaks and you speak. The turn-taking machine is `startCall` and the
+ * three taps under it; the surface it draws is `CallPanel`.
  */
 
 type Turn = {
@@ -44,16 +53,46 @@ type Turn = {
 };
 
 /**
- * Where the composer's text is coming from. A switch for a derivation, not a
- * copy of anything.
+ * The call, as four states and nothing else. `null` is "not on a call".
  *
- * `'mic-edited'` is a third state rather than a flag because it answers two
- * questions at once, and they have different answers: the composer must show the
- * typed value again, AND the message still originated at the microphone, so its
- * answer is still spoken aloud. Someone who dictates a place name, fixes the one
- * syllable Korean STT always mangles, and sends it has not stopped using voice.
+ * They are named for what the USER is owed at that moment, because the one
+ * question a call has to answer continuously is whose turn it is:
+ *
+ *   connecting — 연결 중.  The microphone has been asked for and has not opened.
+ *   listening  — 듣는 중.  Your turn. The microphone is live.
+ *   thinking   — 생각 중.  Our turn, silently. The microphone is SHUT.
+ *   speaking   — 말하는 중. Our turn, aloud. The microphone is SHUT.
+ *
+ * Half-duplex, like a phone actually is: exactly one of the two of you holds the
+ * line, and the shut microphone in the last two states is not a limitation to
+ * apologise for — it is the entire echo-cancellation strategy. An open
+ * microphone with no AEC hears the assistant and dictates its own next question.
  */
-type Draft = 'typed' | 'mic' | 'mic-edited';
+type CallPhase = 'connecting' | 'listening' | 'thinking' | 'speaking';
+
+/**
+ * Empty recognition sessions in a row before we say something, and before we
+ * hang up. Chrome ends a session by itself after roughly five to eight seconds
+ * of silence, so these are about twelve seconds and about forty.
+ *
+ * The hang-up is the important one. A call that outlives the user's attention is
+ * a hot microphone in a sheet nobody is looking at, and no status line prevents
+ * that — only ending the call does.
+ */
+const SILENT_HINT = 2;
+const SILENT_HANGUP = 6;
+
+/**
+ * Consecutive sessions that never managed to open before we stop trying.
+ * Distinct from silence: this is the engine refusing, and retrying it at full
+ * speed is the tight loop that burns a tab.
+ */
+const FAILED_ARMS_LIMIT = 5;
+
+/** Re-open the microphone this long after the assistant stops. */
+const REARM_MS = 180;
+/** Back off this far when a session failed to open at all. */
+const REARM_AFTER_FAILURE_MS = 1200;
 
 /**
  * Starter prompts, and they are not decoration.
@@ -85,7 +124,6 @@ export function AgentSheet({
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
-  const [draft, setDraft] = useState<Draft>('typed');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -96,39 +134,261 @@ export function AgentSheet({
   /* ── Voice ───────────────────────────────────────────────────────────────── */
 
   /**
-   * Both halves of voice mode are existing parts, used as they were written.
+   * Both halves are the existing parts, used as they were written.
    * `useSpeechToText` is the Web Speech API on-device; `useTextToSpeech` speaks
-   * the answer. Neither touches the microphone or the speaker until something
-   * below calls `start()` or `speak()` — mounting this sheet asks the user for
-   * nothing.
+   * the answer, through the browser voice unless the hosted one is both opted
+   * into and usable (lib/speech/fallback-synthesizer.ts). Neither touches the
+   * microphone or the speaker until something below calls `start()` or
+   * `speak()` — mounting this sheet asks the user for nothing.
    *
-   * `preferredSynthesizer()` is the browser's own voice unless the hosted one
-   * has been opted into AND is usable; see lib/speech/fallback-synthesizer.ts.
-   * Created through a lazy initialiser so it is built once per mounted sheet
-   * rather than on every render.
+   * Each is wrapped in a TAP, which is not a third engine: it forwards every
+   * call to the real backend and additionally hands us the three events a call
+   * is made of — the microphone opened, a turn ended, the answer finished
+   * playing. Built once through a lazy initialiser, because these hooks keep
+   * their backend for their whole lifetime and rebuilding one mid-call would
+   * drop the session.
    */
-  const mic = useSpeechToText({ lang: 'ko-KR' });
-  const [synthesizer] = useState(preferredSynthesizer);
-  const voice = useTextToSpeech({ synthesizer, lang: 'ko-KR' });
+  const tapsRef = useRef<RecognizerTap & SynthesizerTap>({});
+  const [engine] = useState(() => {
+    const taps = () => tapsRef.current;
+    return {
+      recognizer: tapRecognizer(new BrowserRecognizer(), taps),
+      synthesizer: tapSynthesizer(preferredSynthesizer(), taps),
+    };
+  });
+  const mic = useSpeechToText({ lang: 'ko-KR', recognizer: engine.recognizer });
+  const voice = useTextToSpeech({ synthesizer: engine.synthesizer, lang: 'ko-KR' });
+
+  /** What the call is doing. `null` when there is no call. */
+  const [phase, setPhase] = useState<CallPhase | null>(null);
+  /** Recognition sessions in a row that heard nothing. Drives the hint and the hang-up. */
+  const [silence, setSilence] = useState(0);
+  /** Why the last call ended, when it ended on its own. Shown once, under the composer. */
+  const [callNotice, setCallNotice] = useState<string | null>(null);
 
   /**
-   * What the composer shows — DERIVED, every render, from whichever source owns
-   * the draft. Nothing copies the transcript into `input`.
+   * The machine's own copies, and they are refs on purpose.
    *
-   * That is the whole reason `draft` exists. `mic.transcript` lives in the
-   * speech hook's external store and changes on its own schedule, including when
-   * Chrome ends a session by itself after a pause — which, with the recogniser's
-   * `continuous = false`, is the ORDINARY ending rather than an edge case.
-   * Mirroring it into `input` would mean an effect that writes state it just
-   * read, one render per interim word, and a frame of stale text every time a
-   * session ended without a tap. Deriving costs nothing and cannot go stale.
-   *
-   * `|| input` keeps a half-typed draft visible until the first word is actually
-   * recognised, so tapping the mic and changing your mind does not eat it.
+   * Speech events arrive from outside React — from the recogniser's `onend`, an
+   * utterance's `onend` — and each one has to act on the phase as it is AT THAT
+   * INSTANT, not the one captured when its closure was made. A ref is the only
+   * thing that is current in both places. They are written beside the setState
+   * that renders them, never in an effect that reads state back and repairs it.
    */
-  const composed = draft === 'mic' ? mic.transcript || input : input;
-  /** The message started at the microphone, so its answer is spoken back. */
-  const byVoice = draft !== 'typed';
+  const phaseRef = useRef<CallPhase | null>(null);
+  /** We want the microphone open. False while muted for the answer, and after a hang-up. */
+  const wantMicRef = useRef(false);
+  /** This session actually opened. False means the engine refused, which is a different problem. */
+  const micOpenedRef = useRef(false);
+  const micErrorRef = useRef<SpeechError | null>(null);
+  const failedArmsRef = useRef(0);
+  const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** An answer of OURS is playing or about to. Stops a stale onEnd re-opening the mic. */
+  const voiceTurnRef = useRef(false);
+  /** The two controls that hand focus to each other as the call starts and ends. */
+  const hangUpRef = useRef<HTMLButtonElement>(null);
+  const callButtonRef = useRef<HTMLButtonElement>(null);
+
+  function go(next: CallPhase | null) {
+    phaseRef.current = next;
+    setPhase(next);
+  }
+
+  /**
+   * Your turn: open the microphone after `delay`.
+   *
+   * CONTINUOUS LISTENING IS THIS FUNCTION, not a flag. `continuous = true` is
+   * the obvious-looking answer and it is not the one available: the Web Speech
+   * recogniser ends a session on a pause regardless, so a call is a chain of
+   * short sessions and the chain is what has to be maintained.
+   *
+   * The delay is not politeness. Calling `start()` from inside the `onend` that
+   * just fired makes Chrome throw "already started", which our recogniser
+   * reports as an error AND an end — and an end is what brought us here, so that
+   * is the tight loop. A tick of separation removes it. It also gives the
+   * speaker a moment to fall silent before the microphone opens, which is the
+   * cheap half of echo suppression.
+   */
+  function arm(delay: number) {
+    if (armTimerRef.current) clearTimeout(armTimerRef.current);
+    armTimerRef.current = null;
+    if (phaseRef.current === null) return;
+
+    go('listening');
+    wantMicRef.current = true;
+    armTimerRef.current = setTimeout(() => {
+      armTimerRef.current = null;
+      // Hung up, or the assistant took the turn back, while this was pending.
+      if (!wantMicRef.current || phaseRef.current !== 'listening') return;
+      micOpenedRef.current = false;
+      micErrorRef.current = null;
+      mic.start();
+    }, delay);
+  }
+
+  /** Our turn: shut the microphone and cancel any pending re-open. */
+  function disarm() {
+    wantMicRef.current = false;
+    if (armTimerRef.current) clearTimeout(armTimerRef.current);
+    armTimerRef.current = null;
+    mic.stop();
+  }
+
+  /**
+   * End the call. Every route out of it lands here — the 통화 종료 button, the
+   * close button, the scrim, Escape, the sheet closing underneath us, unmount,
+   * and the two ways the call gives up on itself.
+   *
+   * `go(null)` comes FIRST and is the reason this is safe to call from anywhere:
+   * the stops below make the backends fire their end events, and every tap
+   * checks the phase before doing anything. A dead phase makes them all no-ops,
+   * so hanging up cannot restart the microphone it is closing.
+   */
+  function hangUp(notice: string | null = null) {
+    go(null);
+    voiceTurnRef.current = false;
+    disarm();
+    voice.stop();
+    setSilence(0);
+    setCallNotice(notice);
+    // 통화 종료 is unmounting under the user's thumb; without this, focus is left
+    // on a button that no longer exists and the next Tab starts from the top of
+    // the document. It lands on the call button rather than the composer for two
+    // reasons: it is the same control in the same place, only inverted, and
+    // focusing a textarea instead would raise the on-screen keyboard — which a
+    // hang-up the call decided on its own has no business doing. Runs a frame
+    // late because the composer has not been drawn yet, and no-ops if the sheet
+    // is on its way out too.
+    requestAnimationFrame(() => callButtonRef.current?.focus());
+  }
+
+  /**
+   * Start the call. `mic.start()` is called straight from the click, not out of
+   * a timer, because this is the moment the browser may raise its permission
+   * prompt and that prompt belongs to the user's own gesture.
+   */
+  function startCall() {
+    if (!mic.supported || phaseRef.current !== null) return;
+    voice.stop();
+    setCallNotice(null);
+    setSilence(0);
+    failedArmsRef.current = 0;
+    micOpenedRef.current = false;
+    micErrorRef.current = null;
+    voiceTurnRef.current = false;
+    go('connecting');
+    wantMicRef.current = true;
+    mic.start();
+  }
+
+  /**
+   * Barge-in. A tap on the call surface while the assistant is talking stops it
+   * and hands the turn back immediately.
+   *
+   * This is what replaces acoustic echo cancellation, which the Web Speech API
+   * does not give us. Without an interrupt, half-duplex would mean sitting
+   * through an answer you have already heard enough of; with it, the microphone
+   * is still never open while the speaker is, and the user decides when the
+   * assistant's turn is over. `arm` re-opens the line here rather than waiting
+   * for the utterance's own end event, because a stopped ElevenLabs clip does
+   * not always report one.
+   */
+  function bargeIn() {
+    if (phaseRef.current !== 'speaking') return;
+    voiceTurnRef.current = false;
+    voice.stop();
+    setSilence(0);
+    arm(0);
+    // The barge-in control unmounts with this tap. Park focus somewhere real.
+    hangUpRef.current?.focus();
+  }
+
+  /**
+   * The three recogniser taps and the two synthesizer taps, republished every
+   * render so they close over current state. This is a latest-callback ref, the
+   * same device `use-text-to-speech.ts` uses for its options — it stores
+   * functions, it does not read state and write it back.
+   */
+  useEffect(() => {
+    tapsRef.current = {
+      /** The microphone is genuinely open now. */
+      onOpen: () => {
+        if (phaseRef.current === null) return;
+        micOpenedRef.current = true;
+        failedArmsRef.current = 0;
+        if (phaseRef.current === 'connecting') go('listening');
+      },
+
+      /** A session ended. This is the turn boundary, and the restart point. */
+      onSettled: (text) => {
+        // Our own stop(): muting for the answer, or hanging up. Not a turn.
+        if (!wantMicRef.current || phaseRef.current === null) return;
+
+        const said = text.trim();
+        if (said) {
+          setSilence(0);
+          void send(said);
+          return;
+        }
+
+        // Nothing heard. Either the engine never woke up, or it did and the room
+        // was quiet — and those two want opposite responses.
+        const code = micErrorRef.current?.code;
+        const refused =
+          !micOpenedRef.current || (code !== undefined && code !== 'no-speech' && code !== 'aborted');
+
+        if (refused) {
+          failedArmsRef.current += 1;
+          if (failedArmsRef.current >= FAILED_ARMS_LIMIT) {
+            hangUp('마이크를 계속 열지 못해서 통화를 끊었어요.');
+            return;
+          }
+          arm(REARM_AFTER_FAILURE_MS);
+          return;
+        }
+
+        const rounds = silence + 1;
+        setSilence(rounds);
+        if (rounds >= SILENT_HANGUP) {
+          hangUp('한참 아무 말이 없어서 통화를 끊었어요. 다시 걸면 돼요.');
+          return;
+        }
+        arm(REARM_MS);
+      },
+
+      /**
+       * Only the two failures a restart cannot fix end the call here. Everything
+       * else is left to `onSettled`, which fires immediately after and already
+       * knows how to back off.
+       */
+      onFail: (error) => {
+        micErrorRef.current = error;
+        if (phaseRef.current === null) return;
+        if (error.code === 'not-allowed') {
+          hangUp('마이크가 차단되어 있어요. 주소창의 자물쇠에서 허용해 주세요.');
+        } else if (error.code === 'not-supported') {
+          hangUp('이 브라우저는 음성 인식을 지원하지 않아요.');
+        }
+      },
+
+      /** The answer is audible. Only now does the sheet claim to be talking. */
+      onAudioStart: () => {
+        if (!voiceTurnRef.current || phaseRef.current === null) return;
+        go('speaking');
+      },
+
+      /**
+       * The answer finished — or never started, which is the same thing for
+       * turn-taking and is how a call survives a browser with no voice at all.
+       */
+      onAudioEnd: () => {
+        if (!voiceTurnRef.current) return;
+        voiceTurnRef.current = false;
+        if (phaseRef.current === null) return;
+        arm(REARM_MS);
+      },
+    };
+  });
 
   /* ── Focus and dismissal ─────────────────────────────────────────────────── */
 
@@ -152,69 +412,20 @@ export function AgentSheet({
   function close() {
     abortRef.current?.abort();
     abortRef.current = null;
-    // Both of these are dismissal, not cleanup, and both have to be here rather
-    // than in an unmount effect: the hooks live above the `!open` early return,
-    // so closing the sheet does not unmount them. Left out, a closed sheet keeps
-    // talking to a room that has moved on, and the microphone stays open behind
-    // a screen the user believes they left. Escape reaches this too.
-    voice.stop();
-    mic.stop();
+    // Dismissal, not cleanup, and it has to be here rather than only in an
+    // unmount effect: the hooks live above the `!open` early return, so closing
+    // the sheet does not unmount them. Left out, a closed sheet keeps talking to
+    // a room that has moved on, and the microphone stays open behind a screen
+    // the user believes they left. Escape and the scrim reach this too.
+    hangUp();
     setBusy(false);
     setStatus(null);
     returnFocusTo.current?.focus();
     onClose();
   }
 
-  /**
-   * The voice control. One button, three jobs, and only ever one of them live.
-   *
-   * TAP-TO-TALK, NOT A CALL. The ask was for a "voice call button", and a call
-   * is the wrong shape here for three reasons that compound. (1) The recogniser
-   * is `continuous = false` — it ends on a natural pause — so hands-free would
-   * mean restarting a session on every `onend`, which is new session logic, and
-   * the brief is to reuse these two hooks rather than write a third
-   * implementation. (2) A real call needs barge-in: hearing the user start
-   * talking over the answer, with echo cancellation between `speechSynthesis`
-   * output and the microphone. The Web Speech API gives us none of that, and
-   * faking it means the assistant's own voice dictating the next question. (3)
-   * The sheet is 100dvh and people leave it open. A hands-free mode leaves a hot
-   * microphone in it, and in Chrome that microphone is streaming to a remote
-   * recogniser — a standing privacy cost for a feature whose turns are bursty
-   * anyway, because the question being asked is about the screen behind the
-   * sheet. So: one tap opens the microphone, one tap closes it.
-   *
-   * Toggle rather than press-and-hold. Hold needs pointer capture, breaks when a
-   * thumb slides off a 44px target mid-sentence, and has no honest keyboard or
-   * switch-control equivalent. A toggle behaves identically for touch, keyboard
-   * and switch users, which press-and-hold never does.
-   *
-   * STOPPING MATTERS MORE THAN STARTING, so the same button is the stop button
-   * and it is the largest, nearest control on screen while the answer plays —
-   * no hunting, no second affordance to learn. The two stops never contend:
-   * silencing the answer is checked first because you cannot talk over it, which
-   * makes a tap during playback mean "quiet" and the next tap mean "my turn".
-   * Closing the sheet and sending a new message stop the speech as well.
-   */
-  function toggleVoice() {
-    if (voice.speaking) {
-      voice.stop();
-      return;
-    }
-    if (mic.listening) {
-      mic.stop();
-      return;
-    }
-    // A session starts from empty rather than from whatever the last one left
-    // behind, so `composed` cannot briefly show the previous question.
-    mic.reset();
-    setDraft('mic');
-    // FIRST contact with the microphone in this component, inside a click
-    // handler, which is also the moment the browser raises its permission
-    // prompt. Nothing on mount and nothing on open touches it — a sheet that
-    // asked for the microphone just for being opened would be refused once and
-    // then refused forever.
-    mic.start();
-  }
+  const micStop = mic.stop;
+  const voiceStop = voice.stop;
 
   useEffect(() => {
     if (!open) return;
@@ -232,8 +443,25 @@ export function AgentSheet({
     return () => {
       clearTimeout(t);
       document.body.style.overflow = prev;
+
+      // THE BACKSTOP, and the one teardown path the buttons cannot cover. Every
+      // dismissal the user performs goes through `close()`, but `open` is a
+      // prop: a parent can flip it, a route can change, this component can
+      // unmount. None of those call anything of ours, and all of them would
+      // otherwise leave a live microphone behind a sheet that is gone.
+      //
+      // Written out rather than calling `hangUp()` so this cleanup depends only
+      // on stable things and cannot itself become a reason the effect re-runs.
+      phaseRef.current = null;
+      wantMicRef.current = false;
+      voiceTurnRef.current = false;
+      if (armTimerRef.current) clearTimeout(armTimerRef.current);
+      armTimerRef.current = null;
+      micStop();
+      voiceStop();
+      setPhase(null);
     };
-  }, [open]);
+  }, [open, micStop, voiceStop]);
 
   /* ── Scroll ──────────────────────────────────────────────────────────────── */
 
@@ -247,14 +475,25 @@ export function AgentSheet({
 
   /* ── Sending ─────────────────────────────────────────────────────────────── */
 
-  async function send(text: string, spoken = false) {
+  async function send(text: string) {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
 
     // Asking the next question ends the last answer and closes the microphone.
-    // Both are no-ops when idle.
+    // On a call `disarm` is also what makes the next half of the turn silent:
+    // the microphone stays shut from here until the answer has finished being
+    // read, which is why the assistant never hears itself.
+    // Disowned BEFORE the stop, not after: stopping makes the synthesizer fire
+    // its end event, and an end event that still belongs to us would re-open the
+    // microphone for a turn we are in the middle of replacing.
+    voiceTurnRef.current = false;
     voice.stop();
-    mic.stop();
+    if (phaseRef.current !== null) {
+      disarm();
+      go('thinking');
+    } else {
+      mic.stop();
+    }
 
     const userTurn: Turn = { id: crypto.randomUUID(), role: 'user', text: trimmed };
     const modelTurn: Turn = { id: crypto.randomUUID(), role: 'model', text: '' };
@@ -269,9 +508,6 @@ export function AgentSheet({
 
     setTurns((prev) => [...prev, userTurn, modelTurn]);
     setInput('');
-    // Back to the typed source, so the settled transcript cannot reappear behind
-    // a field the user just watched empty.
-    setDraft('typed');
     setBusy(true);
     // Doherty: the acknowledgement has to land immediately, not when the first
     // token does. A tool-calling turn's first model call alone is over a second.
@@ -348,7 +584,7 @@ export function AgentSheet({
 
       /**
        * WHEN THE ANSWER IS SPOKEN: once, here, with the whole thing — never per
-       * `text` delta.
+       * `text` delta, and only on a call.
        *
        * Per-delta is not merely choppy, it is silent: `BrowserSynthesizer.speak`
        * opens with `speechSynthesis.cancel()`, so every delta would kill the
@@ -364,12 +600,25 @@ export function AgentSheet({
        * text, so an answer spoken early would be prose about a card that had not
        * been drawn yet.
        *
-       * `spoken` gates it on the question having been ASKED aloud. A user who
-       * typed is not expecting the room to hear the reply. `aborted` gates out a
-       * closed sheet: `close()` aborts and stops the voice, and without this
+       * A live phase gates it on the question having been ASKED aloud. A user
+       * who typed is not expecting the room to hear the reply, and someone who
+       * hung up mid-turn still gets their answer in writing. `aborted` gates out
+       * a closed sheet: `close()` aborts and stops the voice, and without this
        * check the answer would start talking a moment afterwards.
+       *
+       * The phase stays `thinking` from here until audio is actually audible —
+       * `onAudioStart` moves it — so the sheet never claims to be talking during
+       * the gap where a hosted voice is still being fetched. If speech fails
+       * outright, `onAudioEnd` fires anyway and the call carries on listening.
        */
-      if (spoken && answer && !controller.signal.aborted) voice.speak(answer);
+      if (phaseRef.current !== null && !controller.signal.aborted) {
+        if (answer) {
+          voiceTurnRef.current = true;
+          voice.speak(answer);
+        } else {
+          arm(REARM_MS);
+        }
+      }
     }
   }
 
@@ -377,6 +626,7 @@ export function AgentSheet({
 
   const avatar = mbti && isMbtiType(mbti) ? mbtiImage(mbti) : null;
   const empty = turns.length === 0;
+  const calling = phase !== null;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-center" role="presentation">
@@ -414,60 +664,91 @@ export function AgentSheet({
                    overflow-hidden bg-canvas shadow-float
                    animate-[fade_var(--dur-modal)_var(--ease-fade)]"
       >
-        <Header avatar={avatar} mbti={mbti} onClose={close} />
+        <Header avatar={avatar} mbti={mbti} calling={calling} onClose={close} />
 
-        <div ref={scrollerRef} className="flex-1 overflow-y-auto px-[var(--gutter)] pb-[var(--space-11)]">
-          {empty ? (
-            <Intro displayName={displayName} onPick={(s) => void send(s, false)} />
-          ) : (
-            <ol className="flex flex-col gap-[var(--space-13)] pt-[var(--space-13)]">
-              {turns.map((t) => (
-                <Bubble key={t.id} turn={t} avatar={avatar} />
-              ))}
-            </ol>
-          )}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={scrollerRef}
+            className="flex-1 overflow-y-auto px-[var(--gutter)] pb-[var(--space-11)]"
+          >
+            {empty ? (
+              <Intro displayName={displayName} onPick={(s) => void send(s)} />
+            ) : (
+              <ol className="flex flex-col gap-[var(--space-13)] pt-[var(--space-13)]">
+                {turns.map((t) => (
+                  <Bubble key={t.id} turn={t} avatar={avatar} />
+                ))}
+              </ol>
+            )}
 
-          {/* Status is the only thing on screen during a tool call, so it is
-              announced rather than just drawn. `polite`, not `assertive` — it
-              updates several times a turn and must not interrupt. */}
-          {status ? (
-            <p
-              aria-live="polite"
-              className="mt-[var(--space-13)] flex items-center gap-[var(--space-7)] text-secondary"
-              style={{ font: 'var(--type-meta)' }}
-            >
-              <Pulse />
-              {status}
-            </p>
+            {/* Status is the only thing on screen during a tool call, so it is
+                announced rather than just drawn. `polite`, not `assertive` — it
+                updates several times a turn and must not interrupt.
+
+                Suppressed on a call: the call panel is already saying this, and
+                two live regions announcing the same sentence is worse than one. */}
+            {status && !calling ? (
+              <p
+                aria-live="polite"
+                className="mt-[var(--space-13)] flex items-center gap-[var(--space-7)] text-secondary"
+                style={{ font: 'var(--type-meta)' }}
+              >
+                <Pulse />
+                {status}
+              </p>
+            ) : null}
+          </div>
+
+          {/* BARGE-IN, as a tap anywhere on the conversation while the assistant
+              is talking. The scrim's device: a full-size button that is
+              `aria-hidden` and not a tab stop, because the labelled, keyboard-
+              reachable version of this exact action is in the panel below and a
+              second tab stop with no name would only be in the way.
+
+              It does cover the source links for as long as the answer plays.
+              That is the right trade — while it is talking your two options are
+              listen or interrupt, and this is the interrupt. */}
+          {phase === 'speaking' ? (
+            <button aria-hidden tabIndex={-1} onClick={bargeIn} className="absolute inset-0" />
           ) : null}
         </div>
 
-        <Composer
-          ref={inputRef}
-          value={composed}
-          onChange={(v) => {
-            setInput(v);
-            // Typing over a dictation keeps the turn a voice turn — the composer
-            // just stops mirroring the transcript. See the `Draft` note.
-            setDraft((d) => (d === 'typed' ? 'typed' : 'mic-edited'));
-          }}
-          onSend={() => void send(composed, byVoice)}
-          busy={busy}
-          voice={{
-            // No button at all rather than a disabled one. Web Speech is
-            // Chromium-strong and absent in Firefox, and a dead control there
-            // would invite a tap and then explain nothing — this is a touch
-            // design with no hover vocabulary to hang a reason on, and
-            // "use a different browser" is not an action available inside the
-            // app. The sheet is fully usable by typing, so the honest move is to
-            // not advertise a capability this browser does not have.
-            available: mic.supported,
-            listening: mic.listening,
-            speaking: voice.speaking,
-            notice: micNotice(mic.error, mic.listening),
-            onToggle: toggleVoice,
-          }}
-        />
+        {/* One or the other, never both. A call takes the composer's place
+            rather than sitting above it: you cannot type and hold a call at the
+            same time, and a text field down there would raise the keyboard over
+            the only two controls that matter while the line is open. */}
+        {phase !== null ? (
+          <CallPanel
+            phase={phase}
+            heard={mic.transcript}
+            status={status}
+            silence={silence}
+            hangUpRef={hangUpRef}
+            onBargeIn={bargeIn}
+            onHangUp={() => hangUp()}
+          />
+        ) : (
+          <Composer
+            ref={inputRef}
+            callRef={callButtonRef}
+            value={input}
+            onChange={setInput}
+            onSend={() => void send(input)}
+            busy={busy}
+            call={{
+              // No button at all rather than a disabled one. Web Speech is
+              // Chromium-strong and absent in Firefox, and a dead control there
+              // would invite a tap and then explain nothing — this is a touch
+              // design with no hover vocabulary to hang a reason on, and
+              // "use a different browser" is not an action available inside the
+              // app. The sheet is fully usable by typing, so the honest move is
+              // to not advertise a capability this browser does not have.
+              available: mic.supported,
+              notice: callNotice,
+              onStart: startCall,
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -478,10 +759,12 @@ export function AgentSheet({
 function Header({
   avatar,
   mbti,
+  calling,
   onClose,
 }: {
   avatar: string | null;
   mbti: string | null;
+  calling: boolean;
   onClose: () => void;
 }) {
   return (
@@ -497,9 +780,14 @@ function Header({
       <div className="min-w-0 flex-1">
         <h2 style={{ font: 'var(--type-card-title)' }}>가자 어시스턴트</h2>
         {/* The MBTI is stated as the face it is wearing, not as a claim about
-            the user. The agent is told the same thing in as many words. */}
+            the user. The agent is told the same thing in as many words.
+
+            On a call this line says so instead. The panel at the bottom carries
+            the turn, but the header is what someone glancing at the top of the
+            sheet reads, and "통화 중" is the one word that explains why the
+            composer has gone. */}
         <p className="text-secondary" style={{ font: 'var(--type-byline)' }}>
-          {mbti ? `${mbti} 얼굴을 하고 있어요` : '저장한 곳을 보고 답해요'}
+          {calling ? '통화 중' : mbti ? `${mbti} 얼굴을 하고 있어요` : '저장한 곳을 보고 답해요'}
         </p>
       </div>
 
@@ -705,30 +993,31 @@ function Sources({ sources }: { sources: SourceLink[] }) {
 
 /* ── Composer ─────────────────────────────────────────────────────────────── */
 
-type VoiceControl = {
-  /** The browser can hear at all. False hides the button entirely. */
+type CallControl = {
+  /** The browser can hear at all. False hides the call button entirely. */
   available: boolean;
-  listening: boolean;
-  speaking: boolean;
-  /** One line to show under the field, or null. */
+  /** Why the last call ended, when it ended by itself. One line, or null. */
   notice: string | null;
-  onToggle: () => void;
+  onStart: () => void;
 };
 
 function Composer({
   ref,
+  callRef,
   value,
   onChange,
   onSend,
   busy,
-  voice,
+  call,
 }: {
   ref: React.RefObject<HTMLTextAreaElement | null>;
+  /** Handed straight to the call button. Where focus lands when a call ends. */
+  callRef: React.RefObject<HTMLButtonElement | null>;
   value: string;
   onChange: (v: string) => void;
   onSend: () => void;
   busy: boolean;
-  voice: VoiceControl;
+  call: CallControl;
 }) {
   // A textarea, not an input, because a question about a day out runs to two
   // lines and a single-line field hides the start of what you typed. It grows to
@@ -744,9 +1033,9 @@ function Composer({
       className="border-t border-divider bg-canvas px-[var(--gutter)] pt-[var(--space-9)]
                  pb-[calc(var(--space-9)+env(safe-area-inset-bottom))]"
     >
-      {/* Announced, not just drawn: while the microphone is open the words land
-          in the field, and a field's value changing is not something a screen
-          reader says. `polite` — it must not cut across the answer being read.
+      {/* Why the last call ended, when it ended on its own. Announced rather
+          than just drawn, because the person it is for is the one who was not
+          looking at the screen.
 
           Always mounted, never conditional. A live region that appears at the
           same moment as its first content is usually announced by nothing —
@@ -755,26 +1044,20 @@ function Composer({
       <p
         aria-live="polite"
         className={`flex items-center gap-[var(--space-7)] text-secondary ${
-          voice.listening || voice.notice ? 'mb-[var(--space-8)]' : ''
+          call.notice ? 'mb-[var(--space-8)]' : ''
         }`}
         style={{ font: 'var(--type-meta)' }}
       >
-        {voice.listening ? <Pulse /> : null}
-        {voice.listening ? '듣고 있어요' : voice.notice}
+        {call.notice}
       </p>
 
       <div className="flex items-end gap-[var(--space-7)]">
-        {voice.available ? <VoiceButton {...voice} busy={busy} /> : null}
+        {call.available ? <CallButton ref={callRef} onStart={call.onStart} busy={busy} /> : null}
 
         <textarea
           ref={ref}
           rows={1}
           value={value}
-          // Read-only rather than disabled while the microphone is open: you
-          // cannot type and dictate into the same field at once, but a disabled
-          // field drops out of the tab order and stops being readable to a
-          // screen reader — which is the one moment its contents are changing.
-          readOnly={voice.listening}
           onChange={(e) => {
             onChange(e.target.value);
             resize(e.target);
@@ -812,76 +1095,156 @@ function Composer({
 }
 
 /**
- * Three states, no new tokens.
+ * The one voice affordance, and it starts a CALL rather than a dictation.
  *
- * Idle is the transparent `secondary` treatment the close button already uses,
- * so it reads as chrome next to the field rather than as a second send button.
- * Listening inverts to `ink`/`on-ink` — the same device the send button uses to
- * say "this one is the action", and the one way to make a control obviously
- * live without a colour the system does not have and without a fourth shadow.
- * Speaking is a tinted `surface-2` fill with a stop glyph: present, clearly
- * pressable, clearly not the same thing as listening.
- *
- * Only the label tells a screen reader which job the button currently has, and
- * there is deliberately no `aria-pressed`: across these three states the control
- * is not one toggle with an on and an off, and announcing it as one would be a
- * worse description than the label it already changes to.
+ * Quiet chrome, not a second send button: transparent on `secondary`, the same
+ * treatment the close button uses. Starting a call is not the primary action of
+ * this screen — typing is — and the ink fill is already spoken for by send.
+ * Disabled only while a turn is in flight, matching the send button.
  */
-function VoiceButton({
-  listening,
-  speaking,
+function CallButton({
+  ref,
+  onStart,
   busy,
-  onToggle,
-}: VoiceControl & { busy: boolean }) {
-  const label = speaking ? '읽어주기 멈추기' : listening ? '말하기 끝내기' : '음성으로 말하기';
-  const fill = listening
-    ? 'bg-ink text-on-ink'
-    : speaking
-      ? 'bg-surface-2 text-ink'
-      : 'text-secondary';
-
+}: {
+  ref: React.RefObject<HTMLButtonElement | null>;
+  onStart: () => void;
+  busy: boolean;
+}) {
   return (
     <button
+      ref={ref}
       type="button"
-      onClick={onToggle}
-      // Only while a turn is in flight, matching the send button — a message
-      // dictated now could not be sent anyway. Stopping the answer being read is
-      // never blocked by this, because reading only starts once the turn is done.
+      onClick={onStart}
       disabled={busy}
-      aria-label={label}
-      className={`grid h-[var(--tap-min)] w-[var(--tap-min)] shrink-0 place-items-center
-                  rounded-[var(--radius-circle)] transition-opacity duration-200
-                  active:opacity-[var(--press-opacity)] disabled:opacity-40 ${fill}`}
+      aria-label="음성으로 통화하기"
+      className="grid h-[var(--tap-min)] w-[var(--tap-min)] shrink-0 place-items-center
+                 rounded-[var(--radius-circle)] text-secondary transition-opacity duration-200
+                 active:opacity-[var(--press-opacity)] disabled:opacity-40"
     >
-      {speaking ? <StopSquare /> : <Mic />}
+      <Phone />
     </button>
   );
 }
 
+/* ── Call surface ─────────────────────────────────────────────────────────── */
+
 /**
- * What to say about a recognition error, derived rather than stored.
+ * What a call looks like. It replaces the composer, and it answers exactly one
+ * question at a time: whose turn is it.
  *
- * Only two of these are worth a user's attention, and the filtering is the
- * point. `aborted` is our own `stop()` and is not news. A live session's earlier
- * error is not news either — the words are arriving. `not-allowed` is the one
- * that is genuinely actionable, and it is the only one that gets told where to
- * go, because a permission the user denied is the only failure here they can
- * actually undo.
+ * THE INDICATOR IS THE TRANSCRIPT. There is no waveform here, and that is a
+ * decision rather than an omission — the Web Speech API hands us recognised
+ * text, not audio levels, so any bar that bounced would be an animation
+ * pretending to be a measurement. What we DO have is the words as they are
+ * recognised, which is a truthful, high-resolution signal of exactly the thing
+ * the user is anxious about: is this hearing me. So the detail line under
+ * "듣는 중" is the live transcript, and the only moving part in the whole panel
+ * is a dot that pulses while the line is ours to wait on.
+ *
+ * ONE TINTED SURFACE, no border and no shadow, per the depth budget. The panel
+ * separates from the conversation by the same hairline the composer used.
  */
-function micNotice(error: SpeechError | null, listening: boolean): string | null {
-  if (!error || listening) return null;
-  switch (error.code) {
-    case 'aborted':
-      return null;
-    case 'not-allowed':
-      return '마이크가 차단되어 있어요. 주소창의 자물쇠에서 허용해 주세요.';
-    case 'no-speech':
-      return '아무 말도 못 들었어요.';
-    case 'network':
-      return '음성 인식에 연결하지 못했어요.';
-    default:
-      return '음성 인식이 안 됐어요. 직접 입력해 주세요.';
-  }
+function CallPanel({
+  phase,
+  heard,
+  status,
+  silence,
+  hangUpRef,
+  onBargeIn,
+  onHangUp,
+}: {
+  phase: CallPhase;
+  /** The live transcript. Derived from the recogniser, never copied into state. */
+  heard: string;
+  /** The turn's tool status, when there is one: "블로그 찾는 중" beats "생각 중". */
+  status: string | null;
+  silence: number;
+  hangUpRef: React.RefObject<HTMLButtonElement | null>;
+  onBargeIn: () => void;
+  onHangUp: () => void;
+}) {
+  const label =
+    phase === 'connecting'
+      ? '연결 중'
+      : phase === 'listening'
+        ? '듣는 중'
+        : phase === 'thinking'
+          ? (status ?? '생각 중')
+          : '말하는 중';
+
+  // Each of these says what is true AND what happens next, because a call has no
+  // affordances to read: the only way to know the microphone shuts while the
+  // assistant talks is to be told, and being told once is enough.
+  const detail =
+    phase === 'connecting'
+      ? '마이크를 여는 중이에요'
+      : phase === 'listening'
+        ? heard ||
+          (silence >= SILENT_HINT
+            ? '아직 듣고 있어요. 편하게 말씀하세요'
+            : '말씀하세요. 다 듣고 대답할게요')
+        : phase === 'thinking'
+          ? '마이크는 잠깐 꺼 뒀어요'
+          : '끝나면 다시 들을게요';
+
+  return (
+    <div
+      className="border-t border-divider bg-canvas px-[var(--gutter)] pt-[var(--space-11)]
+                 pb-[calc(var(--space-11)+env(safe-area-inset-bottom))]"
+    >
+      <div className="rounded-[var(--radius-2xl)] bg-surface-1 p-[var(--space-11)]">
+        {/* `role="status"` as well as `aria-live`: this is the one line that
+            tells a screen-reader user whose turn it is, and it is the only
+            polite region on screen during a call. */}
+        <p
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-[var(--space-7)]"
+          style={{ font: 'var(--type-card-title)' }}
+        >
+          {phase === 'speaking' ? <Dot /> : <Pulse />}
+          {label}
+        </p>
+
+        {/* Reserves its own line so the panel does not jump as words arrive. */}
+        <p
+          className="mt-[var(--space-4)] min-h-[var(--meta-lh)] text-secondary"
+          style={{ font: 'var(--type-meta)' }}
+        >
+          {detail}
+        </p>
+      </div>
+
+      {/* Only while it is talking, because it is only true then. This is the
+          keyboard and screen-reader route to the interrupt; the tap-anywhere
+          version of the same action is the overlay on the conversation. */}
+      {phase === 'speaking' ? (
+        <Button
+          variant="secondary"
+          className="mt-[var(--space-8)] w-full"
+          onClick={onBargeIn}
+        >
+          말 끊고 말하기
+        </Button>
+      ) : null}
+
+      {/* THE CALL MUST VISIBLY END, and this is that control: always present,
+          always in the same place, ink-filled because ending the call is the
+          only decision the user still owns while it runs. `autoFocus` because
+          the composer it replaced held the focus a moment ago, and a sheet with
+          focus on nothing sends the next Tab to the top of the document. */}
+      <Button
+        ref={hangUpRef}
+        autoFocus
+        variant="primary"
+        className="mt-[var(--space-8)] w-full"
+        onClick={onHangUp}
+      >
+        통화 종료
+      </Button>
+    </div>
+  );
 }
 
 /* ── NDJSON ───────────────────────────────────────────────────────────────── */
@@ -970,20 +1333,18 @@ function Send() {
   );
 }
 
-function Mic() {
+/**
+ * A handset, not a microphone. The distinction is the whole feature: a
+ * microphone glyph promises dictation — press, talk, watch your words appear —
+ * and what this button actually does is place a call you then have to end.
+ */
+function Phone() {
   return (
     <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden>
-      <rect x="9" y="3" width="6" height="11" rx="3" {...stroke} />
-      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" {...stroke} />
-    </svg>
-  );
-}
-
-/** Stop, not pause: the answer is not resumable, and a pause glyph would promise it is. */
-function StopSquare() {
-  return (
-    <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden>
-      <rect x="7" y="7" width="10" height="10" rx="2.5" {...stroke} />
+      <path
+        d="M5.4 3.8h2.9l1.5 3.6-1.9 1.4a11.2 11.2 0 0 0 5.3 5.3l1.4-1.9 3.6 1.5v2.9a2 2 0 0 1-2.2 2A14.6 14.6 0 0 1 3.4 6a2 2 0 0 1 2-2.2Z"
+        {...stroke}
+      />
     </svg>
   );
 }
@@ -1011,4 +1372,13 @@ function Pulse() {
       style={{ animation: 'fade 900ms var(--ease-fade) infinite alternate' }}
     />
   );
+}
+
+/**
+ * The same dot, still. It marks the assistant's own turn, where the sound IS the
+ * feedback and a pulsing light beside it would only be decoration competing with
+ * it. Pulse means we are waiting on something; this means we are not.
+ */
+function Dot() {
+  return <span aria-hidden className="h-[6px] w-[6px] rounded-[var(--radius-circle)] bg-ink" />;
 }

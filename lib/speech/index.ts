@@ -47,3 +47,14 @@ export type {
   SynthesisError,
   SynthesisErrorCode,
 } from './synthesizer';
+
+/* ---- Taps. Only a hands-free caller needs these. ---- */
+
+/**
+ * `tapRecognizer` / `tapSynthesizer` wrap a backend and hand its EVENTS to the
+ * caller — microphone opened, turn ended, audio finished — while forwarding
+ * everything to the real backend untouched. A turn-taking loop needs the events;
+ * the hooks only expose state. See lib/speech/tap.ts.
+ */
+export { tapRecognizer, tapSynthesizer } from './tap';
+export type { RecognizerTap, SynthesizerTap } from './tap';

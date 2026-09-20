@@ -39,6 +39,7 @@ interface WSRInstance {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
+  onstart: (() => void) | null;
   onresult: ((e: WSREvent) => void) | null;
   onerror: ((e: WSRErrorEvent) => void) | null;
   onend: (() => void) | null;
@@ -101,6 +102,12 @@ export class BrowserRecognizer implements SpeechRecognizer {
     // continuous=false: stop after a natural utterance. The core layer can
     // restart if a consumer wants long-form dictation; the backend stays simple.
     rec.continuous = false;
+
+    // Fired when the device is actually live — after the permission prompt, and
+    // NOT fired at all when the engine refuses to open the session. A caller
+    // that restarts sessions in a loop needs that difference to know whether it
+    // is looking at a silent user or at an engine that never woke up.
+    rec.onstart = () => handlers.onStart?.();
 
     rec.onresult = (e: WSREvent) => {
       // Concatenate everything from resultIndex onward into one transcript, and

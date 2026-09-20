@@ -8,9 +8,9 @@
 | `useSpeechToText` | 말 → 글자 | 브라우저 Web Speech API. 서버 없음, 키 없음 |
 | `useTextToSpeech` | 글자 → 말 | 기본은 브라우저 `speechSynthesis`. ElevenLabs는 선택 |
 
-**이미 붙어 있는 곳:** `components/agent-sheet.tsx`의 음성 버튼. 둘을 이어서
-"말하면 → 그게 메시지가 되고 → 답을 읽어준다"를 만듭니다. 새로 만들지 말고 거기를
-먼저 보세요.
+**이미 붙어 있는 곳:** `components/agent-sheet.tsx`의 통화 버튼. 둘을 이어서 **핸즈프리
+통화**를 만듭니다 — 말하면 그게 메시지가 되고, 답을 읽어주고, 읽기가 끝나면 마이크가
+다시 열립니다. 새로 만들지 말고 거기를 먼저 보세요.
 
 # 음성 입력 (Speech-to-Text)
 
@@ -117,3 +117,54 @@ elevenlabs-synthesizer.ts  ← /api/tts를 호출. 키는 서버에만.
 fallback-synthesizer.ts    ← 위 둘의 합성 + preferredSynthesizer(). 새 엔진 아님.
 use-text-to-speech.ts      ← React 훅. (팀원이 쓰는 것)
 ```
+
+## 통화(핸즈프리)로 쓸 때: `tapRecognizer` / `tapSynthesizer`
+
+훅 두 개는 **상태**(`listening`, `speaking`, `transcript`)를 줍니다. 그런데 턴을
+주고받는 통화에 필요한 건 **사건**입니다 — 마이크가 실제로 열렸다, 한 턴이 끝났다,
+답 읽기가 끝났다. 상태 변화를 effect로 되짚어 사건을 추측하면, 재시작 로직과 만나는
+순간 그게 바로 무한 루프가 됩니다.
+
+```tsx
+const tapsRef = useRef<RecognizerTap & SynthesizerTap>({});
+const [engine] = useState(() => {
+  const taps = () => tapsRef.current;
+  return {
+    recognizer: tapRecognizer(new BrowserRecognizer(), taps),
+    synthesizer: tapSynthesizer(preferredSynthesizer(), taps),
+  };
+});
+const mic = useSpeechToText({ lang: 'ko-KR', recognizer: engine.recognizer });
+const voice = useTextToSpeech({ synthesizer: engine.synthesizer, lang: 'ko-KR' });
+```
+
+| 콜백 | 언제 |
+|---|---|
+| `onOpen` | 마이크가 진짜 열렸을 때. `start()` 호출과 다릅니다(권한 창, 거부) |
+| `onSettled(text)` | 한 세션이 끝났을 때. **빈 문자열이 정상입니다** |
+| `onFail(error)` | 인식 오류 |
+| `onAudioStart` / `onAudioEnd` | 답 읽기 시작 / 끝(중단·실패 포함, 정확히 한 번) |
+
+탭은 엔진이 아닙니다. 전부 그대로 아래로 넘기기 때문에 ElevenLabs 폴백도 그대로
+동작합니다. 구현은 `tap.ts`.
+
+### `continuous = true`가 답이 아닌 이유
+
+Web Speech 인식기는 플래그와 무관하게 침묵에서 세션을 끝냅니다. 그래서 연속 청취는
+**`onSettled`에서 다시 `start()`를 거는 체인**으로 만듭니다. 두 가지를 반드시 막으세요:
+
+- `onend` 안에서 곧바로 `start()`를 부르면 크롬이 "already started"를 던지고, 그게
+  다시 오류+종료로 돌아와 **타이트 루프**가 됩니다. 한 틱(150~200ms) 띄우세요.
+- 통화를 끊은 뒤에도 재시작되지 않도록 "지금 마이크를 원하는가"를 ref로 들고 판단하세요.
+
+### 에코(자기 목소리를 자기가 받아쓰는 문제)
+
+브라우저에는 우리가 쓸 수 있는 AEC가 없습니다. 답을 읽는 동안 **마이크를 닫는 것**이
+해법입니다(half-duplex). 끼어들기는 탭 한 번으로 `voice.stop()` + 마이크 재개.
+
+### 한국어 목소리
+
+`browser-synthesizer.ts`가 `ko-KR` → `ko` 순으로 고르고, 같은 조건이면 기기 내장
+목소리를 먼저 씁니다(macOS/Chrome의 Yuna 등). **`getVoices()`는 첫 호출에서 비어 있고
+`voiceschanged`로 나중에 채워지는 게 정상**이라, 첫 문장은 목록을 기다렸다가 말합니다
+(최대 1.5초). 이걸 안 기다리면 한국어 문장을 영어 목소리가 읽습니다.

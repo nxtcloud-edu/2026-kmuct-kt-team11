@@ -54,6 +54,17 @@ export type SpeechRecognizerOptions = {
  * subscribe only to what it needs.
  */
 export type SpeechRecognizerHandlers = {
+  /**
+   * The backend has actually opened the microphone: permission granted, device
+   * live, words will now be heard.
+   *
+   * Deliberately distinct from a caller's `start()`, which only REQUESTS a
+   * session — between the two sit the browser's permission prompt and the audio
+   * device opening, and on a restart the engine can refuse to open at all. A
+   * hands-free UI has to tell those apart to say "연결 중" honestly rather than
+   * claiming to be listening at a microphone that is shut.
+   */
+  onStart?: () => void;
   onResult?: (result: SpeechResult) => void;
   onError?: (error: SpeechError) => void;
   /** Fired once when a session ends, for any reason (stop, error, silence). */
