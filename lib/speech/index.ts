@@ -1,7 +1,10 @@
 /**
- * Speech-to-text module. Import from here.
+ * Speech module. Import from here.
  *
- * Teammates usually need only `useSpeechToText`. The rest is exported for
+ *   useSpeechToText  — voice → text (browser, on-device)
+ *   useTextToSpeech  — text → voice (ElevenLabs, via our server route)
+ *
+ * Teammates usually need only the two hooks. The rest is exported for
  * advanced use (a non-React caller, or supplying a custom backend).
  */
 
@@ -21,3 +24,19 @@ export type {
   SpeechError,
   SpeechErrorCode,
 } from './recognizer';
+
+/* ---- Text-to-speech (text → voice). The mirror of the above. ---- */
+
+export { useTextToSpeech } from './use-text-to-speech';
+export type { UseTextToSpeechOptions } from './use-text-to-speech';
+
+export { BrowserSynthesizer } from './browser-synthesizer';
+export { ElevenLabsSynthesizer } from './elevenlabs-synthesizer';
+
+export type {
+  SpeechSynthesizer,
+  SpeechSynthesizerHandlers,
+  SpeechSynthesizerOptions,
+  SynthesisError,
+  SynthesisErrorCode,
+} from './synthesizer';

@@ -32,6 +32,8 @@ export type ProblemCode =
   | 'recommendation-failed'
   | 'recommendation-unavailable'
   | 'ingest-breaker-tripped'
+  | 'tts-unavailable'
+  | 'tts-failed'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -70,6 +72,8 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   // person clears the challenge and resets ingest_state by hand. Retry-After
   // would be a lie, so the route does not send one.
   'ingest-breaker-tripped':   { status: 503, title: 'Ingestion halted',            detail: 'Reel ingestion has stopped and will not resume until it is reset by hand.' },
+  'tts-unavailable':          { status: 503, title: 'Voice not available',        detail: '음성 합성이 아직 설정되지 않았어요. 서버에 ElevenLabs 키가 필요합니다.' },
+  'tts-failed':               { status: 502, title: 'Voice synthesis failed',     detail: '음성으로 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 
