@@ -1,10 +1,13 @@
 'use client';
 
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ApiError, NetworkError, apiFetch } from '@/lib/api/client';
-import { MBTI_TYPES, mbtiImage, type MbtiType } from '@/lib/mbti';
+import { ChoicePill } from '@/components/surface';
+import { MbtiPicker } from '@/components/mbti-picker';
+import type { MbtiType } from '@/lib/mbti';
+import { AGE_BANDS, AREAS, GENDERS } from '@/lib/profile';
+import type { AgeBand, Gender } from '@/lib/session';
 
 /**
  * Onboarding, five steps.
@@ -32,9 +35,6 @@ import { MBTI_TYPES, mbtiImage, type MbtiType } from '@/lib/mbti';
  * cross-fade rather than slide.
  */
 
-type Gender = 'female' | 'male' | 'undisclosed';
-type AgeBand = '10s' | '20s' | '30s' | '40s' | '50plus';
-
 type Draft = {
   display_name?: string;
   gender?: Gender;
@@ -43,22 +43,6 @@ type Draft = {
   home_area?: string;
   instagram_handle?: string;
 };
-
-const GENDERS: { value: Gender; label: string }[] = [
-  { value: 'female', label: '여성' },
-  { value: 'male', label: '남성' },
-  { value: 'undisclosed', label: '선택 안 함' },
-];
-
-const AGE_BANDS: { value: AgeBand; label: string }[] = [
-  { value: '10s', label: '10대' },
-  { value: '20s', label: '20대' },
-  { value: '30s', label: '30대' },
-  { value: '40s', label: '40대' },
-  { value: '50plus', label: '50대+' },
-];
-
-const AREAS = ['성수', '연남', '한남', '강남', '을지로', '홍대', '압구정', '여의도', '잠실', '기타'];
 
 const TOTAL = 5;
 
@@ -146,16 +130,16 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
             </p>
             <Group label="성별">
               {GENDERS.map((g) => (
-                <Pill key={g.value} selected={draft.gender === g.value} onClick={() => patch({ gender: g.value })}>
+                <ChoicePill key={g.value} selected={draft.gender === g.value} onClick={() => patch({ gender: g.value })}>
                   {g.label}
-                </Pill>
+                </ChoicePill>
               ))}
             </Group>
             <Group label="연령대">
               {AGE_BANDS.map((a) => (
-                <Pill key={a.value} selected={draft.age_band === a.value} onClick={() => patch({ age_band: a.value })}>
+                <ChoicePill key={a.value} selected={draft.age_band === a.value} onClick={() => patch({ age_band: a.value })}>
                   {a.label}
-                </Pill>
+                </ChoicePill>
               ))}
             </Group>
           </Step>
@@ -163,56 +147,16 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
 
         {step === 2 && (
           <Step heading="MBTI가 어떻게 되세요?">
-            <div className="grid grid-cols-4 gap-[var(--space-8)]">
-              {MBTI_TYPES.map((t) => {
-                const selected = draft.mbti === t;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => patch({ mbti: t })}
-                    aria-pressed={selected}
-                    // Selection is an outline, not an inverted fill. Fifteen of the
-                    // sixteen tiles carry their own saturated background, so an ink
-                    // fill would fight the art rather than frame it. INTP is the
-                    // exception and ships on transparency, which is why it reads as
-                    // a figure on the card instead of a coloured tile.
-                    //
-                    // These PNGs also arrived with gAMA+sRGB chunks, which sharp
-                    // mis-composites through `next/image`: every background came out
-                    // pure black while the file on disk was correct. The chunks are
-                    // stripped in `public/mbti/`. Re-exporting the art from a design
-                    // tool will reintroduce them — strip again, and clear
-                    // `.next/dev/cache/images`, or the old black copies survive.
-                    className={`flex flex-col items-center gap-[var(--space-4)] rounded-[var(--radius-xl)] bg-surface-1 p-[var(--space-5)] transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
-                      selected ? 'outline-2 -outline-offset-2 outline-ink' : ''
-                    }`}
-                  >
-                    <Image
-                      src={mbtiImage(t)}
-                      alt=""
-                      width={64}
-                      height={64}
-                      className="h-auto w-full rounded-[var(--radius-md)]"
-                    />
-                    <span
-                      className={selected ? 'text-ink' : 'text-secondary'}
-                      style={{ font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)' }}
-                    >
-                      {t}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => advance({ mbti: undefined })}
-              className="mt-[var(--space-11)] h-[var(--tap-min)] w-full rounded-[var(--radius-lg)] bg-surface-1 text-secondary"
-              style={{ font: 'var(--type-meta)' }}
-            >
-              잘 모르겠어요
-            </button>
+            {/* The tiles, the outline-not-fill selection and the note about the
+                PNG colour chunks all live in components/mbti-picker.tsx — the
+                account screen shows the same art back and edits it, so there is
+                one copy. 잘 모르겠어요 means "move on without writing anything"
+                here, which is why the picker takes it as its own callback. */}
+            <MbtiPicker
+              value={draft.mbti ?? null}
+              onSelect={(t) => patch({ mbti: t })}
+              onUnknown={() => advance({ mbti: undefined })}
+            />
           </Step>
         )}
 
@@ -220,9 +164,9 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
           <Step heading="주로 어디서 노세요?">
             <div className="flex flex-wrap gap-[var(--space-7)]">
               {AREAS.map((a) => (
-                <Pill key={a} selected={draft.home_area === a} onClick={() => patch({ home_area: a })}>
+                <ChoicePill key={a} selected={draft.home_area === a} onClick={() => patch({ home_area: a })}>
                   {a}
-                </Pill>
+                </ChoicePill>
               ))}
             </div>
           </Step>
@@ -321,29 +265,5 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
       </p>
       <div className="mt-[var(--space-7)] flex flex-wrap gap-[var(--space-7)]">{children}</div>
     </div>
-  );
-}
-
-function Pill({
-  selected,
-  onClick,
-  children,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={`flex h-[var(--tap-min)] items-center rounded-[var(--radius-pill)] px-[var(--space-11)] transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
-        selected ? 'bg-ink text-on-ink' : 'bg-surface-2 text-secondary'
-      }`}
-      style={{ font: 'var(--type-meta)' }}
-    >
-      {children}
-    </button>
   );
 }

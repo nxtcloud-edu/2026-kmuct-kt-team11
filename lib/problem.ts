@@ -19,6 +19,8 @@ export type ProblemCode =
   | 'instagram-handle-taken'
   | 'idempotency-key-reuse'
   | 'invite-invalid'
+  | 'invite-expired'
+  | 'invite-revoked'
   | 'invite-already-member'
   | 'not-group-member'
   | 'last-owner'
@@ -43,7 +45,14 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   // nothing that was theirs — say so plainly rather than implying an accusation.
   'instagram-handle-taken':   { status: 409, title: 'Instagram handle already claimed', detail: '다른 계정에서 이미 연결해 둔 인스타그램 아이디예요. 오타가 없는지 확인해 주시고, 본인 아이디가 맞다면 비워둔 채로 넘어가셔도 괜찮아요.' },
   'idempotency-key-reuse':    { status: 409, title: 'Idempotency key reused',      detail: 'This Idempotency-Key was already used with a different request body. Generate a new key.' },
-  'invite-invalid':           { status: 400, title: 'Invite no longer valid',      detail: 'This invite has expired or was already used. Ask for a new one.' },
+  // Three codes, because the three causes have three different remedies and one
+  // of them is not "ask for a new link". `invite-invalid` now means only what it
+  // says: this token matches nothing we ever issued — a typo, a truncated paste,
+  // or a guess. Since 20260920000010 an invite is reusable, so "already used" is
+  // no longer one of the reasons a link fails.
+  'invite-invalid':           { status: 400, title: 'Invite link not recognised',  detail: '이 초대 링크를 찾을 수 없어요. 주소가 잘린 건 아닌지 확인하고, 초대해 준 사람에게 다시 받아 주세요.' },
+  'invite-expired':           { status: 400, title: 'Invite link expired',         detail: '초대 링크가 만료됐어요. 초대해 준 사람에게 새 링크를 받아 주세요.' },
+  'invite-revoked':           { status: 400, title: 'Invite link turned off',      detail: '이 초대 링크는 더 이상 쓸 수 없어요. 그룹 멤버에게 새 링크를 요청해 주세요.' },
   'invite-already-member':    { status: 409, title: 'Already a member',            detail: 'You are already in this group.' },
   'not-group-member':         { status: 403, title: 'Not a group member',          detail: 'You are not a member of this group.' },
   'last-owner':               { status: 409, title: 'Group would have no owner',   detail: 'Make someone else an owner before leaving.' },

@@ -104,6 +104,40 @@ export function Button({
   );
 }
 
+/* ── ChoicePill ───────────────────────────────────────────────────────────── */
+
+/**
+ * A selectable pill. Onboarding asks the profile questions with these and the
+ * account screen edits the same answers with them, so there is one definition —
+ * two would be two chances for "selected" to mean two different things.
+ *
+ * Selection is an inverted fill rather than an outline, which is the one place
+ * this system does invert: a pill carries no imagery for a fill to fight, and
+ * `--ink` on `--on-ink` measures 17.40:1. The MBTI tiles go the other way for
+ * exactly that reason — see components/mbti-picker.tsx.
+ *
+ * `aria-pressed` and not `role="radio"`: several of these groups are genuinely
+ * optional, so "none pressed" has to be a legal and announced state, and a radio
+ * group with no checked member is not.
+ */
+export function ChoicePill({
+  selected,
+  className = '',
+  ...rest
+}: ComponentProps<'button'> & { selected: boolean }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      className={`flex h-[var(--tap-min)] items-center rounded-[var(--radius-pill)] px-[var(--space-11)] transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
+        selected ? 'bg-ink text-on-ink' : 'bg-surface-2 text-secondary'
+      } ${className}`}
+      style={{ font: 'var(--type-meta)' }}
+      {...rest}
+    />
+  );
+}
+
 /* ── Layout ───────────────────────────────────────────────────────────────── */
 
 /**
