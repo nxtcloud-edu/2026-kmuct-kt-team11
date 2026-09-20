@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { inboxHandle, ReelGuideCompact } from '@/components/reel-guide';
 import { Content } from '@/components/surface';
 import { PlaceDeck } from './deck';
 import { HomeEvents } from './events';
@@ -127,26 +128,49 @@ export default async function HomePage() {
           button: sharing a reel to the account is the primary path, and pasting
           a URL is what you do when that path is not available to you. A filled
           control here would compete with the deck for the screen's one action.
-          Its own route, not a tab — the tab bar's five pills are its ceiling. */}
-      <Link
-        href="/add"
-        className="mt-[var(--section-gap)] inline-flex min-h-[var(--tap-min)] items-center text-ink"
-        style={{ font: 'var(--type-meta)' }}
-      >
-        릴스 주소로 저장하기 ›
-      </Link>
+          Its own route, not a tab — the tab bar's five pills are its ceiling.
 
-      {/* Still one line rather than a designed empty screen — but no longer a
-          dead end, because the events section below it is now the thing to do.
-          The second half is written only when there is actually something down
-          there: pointing a new user at an empty feed is worse than saying
-          nothing, and the weekly scrape can legitimately have nothing to show. */}
+          IT IS HIDDEN ON THE COLD START, because `ReelGuideCompact` below opens
+          with the same route as its first row. Once there is a deck the reader
+          has done this before and one line is the whole reminder they need; on
+          an empty screen the line alone was a label with no explanation, and
+          keeping both would make the reader choose between two controls that go
+          to the same place. */}
+      {saved.length > 0 ? (
+        <Link
+          href="/add"
+          className="mt-[var(--section-gap)] inline-flex min-h-[var(--tap-min)] items-center text-ink"
+          style={{ font: 'var(--type-meta)' }}
+        >
+          릴스 주소로 저장하기 ›
+        </Link>
+      ) : null}
+
+      {/* THE COLD START, and the one moment the product's only input is still a
+          secret. The line is still one line — the second half written only when
+          there is actually something down there, because pointing a new user at
+          an empty feed is worse than saying nothing — but it is now followed by
+          the 안내 in its compact form, because a reader who has saved nothing has
+          not yet been told how anything gets saved.
+
+          It is here and not lower for the reason the Paradox of the Active User
+          gives: nobody navigates to a manual, so the guidance has to be on the
+          path they are already on. It is ~200px, so 지금 하는 이벤트 below it is
+          still on the first screen of a 430px canvas — the section that changes
+          weekly does not get pushed off to make room for one that never does. */}
       {saved.length === 0 ? (
-        <p className="mt-[var(--section-gap)] text-secondary" style={{ font: 'var(--type-body)' }}>
-          {homeEvents.length > 0
-            ? '아직 저장한 곳이 없어요. 마음에 드는 이벤트를 저장하면 여기에 담겨요.'
-            : '아직 저장한 곳이 없어요'}
-        </p>
+        <>
+          <p className="mt-[var(--section-gap)] text-secondary" style={{ font: 'var(--type-body)' }}>
+            {homeEvents.length > 0
+              ? '아직 저장한 곳이 없어요. 마음에 드는 이벤트를 저장하면 여기에 담겨요.'
+              : '아직 저장한 곳이 없어요'}
+          </p>
+
+          {/* `igsid`, not `instagram_handle` — the handle is a claim and routes
+              nothing, this is the binding. Identical derivation to /add, which
+              is the point of sharing the component. */}
+          <ReelGuideCompact linked={user.igsid !== null} handle={inboxHandle()} />
+        </>
       ) : null}
 
       <PlaceDeck places={saved} />
