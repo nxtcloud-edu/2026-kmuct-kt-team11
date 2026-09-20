@@ -10,6 +10,16 @@ import { Button } from '@/components/surface';
  * reads them and neither survives a reload. The destination lives in the URL
  * (`?next=`), because it must survive the round trip through the inbox.
  */
+/** Redirect reasons from the OAuth routes, mapped to something a person can act on. */
+const OAUTH_ERRORS: Record<string, string> = {
+  oauth_denied: '로그인이 취소되었어요.',
+  oauth_failed: '로그인을 마치지 못했어요. 다시 시도해 주세요.',
+  oauth_start_failed: '지금은 소셜 로그인을 시작할 수 없어요. 이메일로 로그인해 주세요.',
+  oauth_unavailable: '소셜 로그인이 아직 설정되지 않았어요. 이메일로 로그인해 주세요.',
+  unsupported_provider: '지원하지 않는 로그인 방식이에요.',
+  email_required: '계정을 만들려면 이메일 제공에 동의해 주세요. 나중에 다시 로그인할 때 필요해요.',
+};
+
 type Status =
   | { k: 'idle' }
   | { k: 'sending' }
@@ -19,6 +29,10 @@ export function SignInForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next');
+
+  // An OAuth attempt that failed comes back as ?error=. Derived during render
+  // rather than pushed into state by an effect.
+  const oauthError = OAUTH_ERRORS[params.get('error') ?? ''] ?? null;
 
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState<Status>({ k: 'idle' });
@@ -54,7 +68,8 @@ export function SignInForm() {
     }
   }
 
-  const invalid = status.k === 'error';
+  const message = status.k === 'error' ? status.message : oauthError;
+  const invalid = message !== null;
 
   return (
     <form onSubmit={onSubmit} noValidate>
@@ -86,7 +101,7 @@ export function SignInForm() {
 
       {/* aria-live so the message is announced without moving focus off the field. */}
       <p id="email-error" role="status" aria-live="polite" className="mt-2 min-h-5 text-sm text-ink-muted">
-        {status.k === 'error' ? status.message : ''}
+        {message ?? ''}
       </p>
 
       <Button
