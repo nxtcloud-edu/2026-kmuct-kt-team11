@@ -39,7 +39,28 @@ const config: VercelConfig = {
   // more often than the floor is harmless — the extra passes return
   // `skipped: 'min-interval'` without touching Instagram. The floor is the real
   // rate limit; the cron only decides how often it gets a chance to expire.
-  crons: [{ path: '/api/internal/ingest/instagram', schedule: '0 3 * * *' }],
+  // ── The events scrape ──────────────────────────────────────────────────────
+  // popga's popups and yanolja's five 공연 genres, into `events`.
+  //
+  // THE PRODUCT CADENCE IS WEEKLY AND THIS LINE SAYS DAILY, ON PURPOSE. Vercel
+  // Cron cannot express "every seven days" — it floors at one invocation and the
+  // plan constraint above caps it at one a day — so the seven-day rule lives in
+  // Postgres instead, as `event_sources.last_attempt_at` and the claim in
+  // lib/events/state.ts. Six days out of seven this invocation answers 200 with
+  // every category `skipped: "cooldown"` and makes no outbound request at all.
+  //
+  // UNLIKE THE POLLER ABOVE, THIS IS THE INTENDED CADENCE, not a compromise
+  // waiting for a Pro plan. Popups run for weeks and a musical runs for months;
+  // re-reading the same five listings hourly would buy nothing and would be a
+  // worse neighbour to two sites that owe us nothing.
+  //
+  // 03:20 rather than 03:00 so it does not start in the same minute as the
+  // Instagram poller. Both are 60s functions that do their own outbound HTTP,
+  // and there is no reason to make them contend for the same instance.
+  crons: [
+    { path: '/api/internal/ingest/instagram', schedule: '0 3 * * *' },
+    { path: '/api/internal/events/refresh', schedule: '20 3 * * *' },
+  ],
 };
 
 export default config;

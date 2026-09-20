@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 
+import { POSTER_HOSTS } from "./lib/events/poster-hosts";
+
 /**
- * The one remote image host: Supabase Storage's public object route, which is
- * where reel cover frames live (lib/storage.ts).
+ * Supabase Storage's public object route, which is where reel cover frames live
+ * (lib/storage.ts).
  *
  * `next/image` refuses any absolute `src` whose host is not listed here — by
  * design, so that a compromised or careless row cannot turn our image optimizer
@@ -41,27 +43,65 @@ const supabaseIsLoopback =
   supabase !== null &&
   ['localhost', '127.0.0.1', '::1', '0.0.0.0'].includes(supabase.hostname.replace(/^\[|\]$/g, ''));
 
+/**
+ * The events feed's poster hosts: popga's CDN and the two yanolja/interpark ones.
+ *
+ * READ FROM lib/events/poster-hosts.ts RATHER THAN WRITTEN OUT HERE, because the
+ * scrapers check the same list before they store a URL. That second reader is
+ * what turns "Next refuses this host" — a 400 and a visibly broken card — into
+ * "this listing has no poster", which is a state the feed card was built for. A
+ * copy of the list in this file would let the two drift, and they would drift
+ * silently in the direction that breaks production.
+ *
+ * Unlike the Supabase entry above, these are NOT conditional on an environment
+ * variable. They are fixed third-party hosts, the same in every environment, and
+ * a config that only allows them when some unrelated variable happens to be set
+ * is a config that fails in exactly one deployment.
+ *
+ * NOTE ON `next/image` AND THESE FILES. interpark serves its posters as
+ * `…_p.gif` with `content-type: image/gif`, which the optimizer re-encodes. That
+ * is fine and is not the trap this repo has hit before: the pure-black renders
+ * in components/mbti-picker.tsx came from a gAMA+sRGB chunk pair in a PNG, and
+ * GIF has no such chunk. If a poster ever does render black, the first thing to
+ * check is whether the host started serving PNG.
+ */
+const posters = POSTER_HOSTS.map((p) => ({
+  // https only. Both CDNs serve TLS, and an http poster would be mixed content
+  // on an https page — the browser blocks it and the card breaks anyway.
+  protocol: 'https' as const,
+  hostname: p.hostname,
+  pathname: `${p.pathPrefix}**`,
+  // No query string, for the reason the Supabase entry gives: a stored row that
+  // could vary its own `?` would address many upstream images through one
+  // allowlisted path.
+  search: '',
+}));
+
 const nextConfig: NextConfig = {
-  images: supabase
-    ? {
-        dangerouslyAllowLocalIP: supabaseIsLoopback,
-        remotePatterns: [
-          {
-            // http locally (`supabase start` serves 127.0.0.1:54321 plain),
-            // https everywhere else. Taken from the URL rather than forced, so
-            // this cannot quietly downgrade a hosted project to http.
-            protocol: supabase.protocol === 'http:' ? 'http' : 'https',
-            hostname: supabase.hostname,
-            port: supabase.port,
-            pathname: '/storage/v1/object/public/reel-thumbs/**',
-            // Objects are addressed by a random uuid path and never by query
-            // string; refusing a search string keeps the optimizer from being
-            // asked to fetch `…?download=1` or any other variant as a new image.
-            search: '',
-          },
-        ],
-      }
-    : undefined,
+  images: {
+    // Only ever true when Supabase Storage IS the loopback address; see above.
+    dangerouslyAllowLocalIP: supabaseIsLoopback,
+    remotePatterns: [
+      ...(supabase
+        ? [
+            {
+              // http locally (`supabase start` serves 127.0.0.1:54321 plain),
+              // https everywhere else. Taken from the URL rather than forced, so
+              // this cannot quietly downgrade a hosted project to http.
+              protocol: supabase.protocol === 'http:' ? ('http' as const) : ('https' as const),
+              hostname: supabase.hostname,
+              port: supabase.port,
+              pathname: '/storage/v1/object/public/reel-thumbs/**',
+              // Objects are addressed by a random uuid path and never by query
+              // string; refusing a search string keeps the optimizer from being
+              // asked to fetch `…?download=1` or any other variant as a new image.
+              search: '',
+            },
+          ]
+        : []),
+      ...posters,
+    ],
+  },
 };
 
 export default nextConfig;

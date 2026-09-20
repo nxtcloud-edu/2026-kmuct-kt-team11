@@ -9,6 +9,21 @@
  */
 
 export type PlaceCategory = 'cafe' | 'restaurant' | 'exhibition' | 'shop' | 'activity';
+
+/**
+ * The events feed's own six categories, which are NOT `PlaceCategory`.
+ *
+ * `PlaceCategory` says what kind of PREMISES a venue is — the axis a map legend
+ * sorts by. This says what kind of OUTING a listing is, which is the axis a
+ * person browsing on a Friday sorts by. They overlap on `exhibition` and agree
+ * on nothing else. `lib/events/types.ts` holds the mapping between them, and it
+ * is lossy; the comment there says exactly how.
+ *
+ * Declared here rather than in `lib/events/` because the value crosses the wire
+ * — it is the filter the browse screen sends back — and everything the client
+ * sees is mirrored in this file.
+ */
+export type EventCategory = 'popup' | 'exhibition' | 'play' | 'musical' | 'concert' | 'sports';
 export type SavedPlaceStatus = 'pending' | 'resolved' | 'needs_review' | 'rejected';
 export type GroupRole = 'owner' | 'member';
 
@@ -144,4 +159,49 @@ export type Problem = {
   instance?: string;
   request_id?: string;
   errors?: { field: string; message: string }[];
+};
+
+/**
+ * One listing in the global events feed.
+ *
+ * GLOBAL, and that is the shape's defining fact: there is no `user_id` anywhere
+ * in it, because the same five popups are shown to every account. The only field
+ * that varies per reader is `saved`, and it is derived at read time rather than
+ * stored — see `lib/events/store.ts`.
+ *
+ * Dates are `YYYY-MM-DD` strings rather than ISO instants. The underlying columns
+ * are `date`: a popup that closes on the 11th closes at the end of the 11th in
+ * Seoul, and serialising that as a timestamp would invent a time of day and then
+ * shift it by the reader's offset.
+ */
+export type FeedEvent = {
+  id: string;
+  category: EventCategory;
+  title: string;
+  /** The venue as the source names it. `NOL 유니플렉스 1관`, `더현대 서울 B1 와인웍스`. */
+  venue: string | null;
+  /** The neighbourhood. From the geocode when resolved, from the source when not. */
+  area: string | null;
+  /**
+   * A remote poster on a host `next.config.ts` allowlists, or null. Never a
+   * Gaja-hosted copy: these are third-party artwork and we store the link, not
+   * the picture. Null is ordinary — the card has a placeholder.
+   */
+  poster_url: string | null;
+  /** Where 예매하기 goes. Always present; a listing without one is never stored. */
+  book_url: string;
+  opens_on: string | null;
+  closes_on: string | null;
+  /**
+   * The `places` row this event resolved to, or null.
+   *
+   * NULL MEANS THE EVENT CANNOT BE SAVED, and that is a designed-for state, not
+   * an error: most yanolja listings publish a hall name (`NOL 유니플렉스 1관`) and
+   * no street address, so there is nothing to geocode and nothing to pin. The
+   * card still renders and still links out to book. The save control is disabled
+   * and says why, rather than failing on tap.
+   */
+  place_id: string | null;
+  /** Whether THIS reader already has the event's place in their saved places. */
+  saved: boolean;
 };

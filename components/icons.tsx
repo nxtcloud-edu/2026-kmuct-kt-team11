@@ -4,7 +4,7 @@
  * Drawn from Iconsax (rounded), **linear** for everything: it is a 1.5px hairline
  * at 24px, which is the same weight as the hairlines in `.agents/visual-language.md`
  * and quiet enough to sit beside 400-weight type without reading as a second
- * emphasis tier. The four tab icons additionally carry the **bold** variant, used
+ * emphasis tier. The five tab icons additionally carry the **bold** variant, used
  * only for the selected tab — the tab bar has no accent colour to mark selection
  * with, so the filled silhouette is the whole signal. The five category icons have
  * no selected state and therefore no bold twin; `filled` falls back to linear for
@@ -28,6 +28,7 @@ import type { ReactNode } from "react";
 
 export type IconName =
   | "home"
+  | "events"
   | "saved"
   | "groups"
   | "account"
@@ -62,6 +63,36 @@ const LINEAR: Record<IconName, ReactNode> = {
         {...line}
       />
       <path d="M12 17.9902V14.9902" {...line} />
+    </>
+  ),
+
+  // time/linear/calendar_event-schedule-planner-date-time-monthly
+  //
+  // A CALENDAR AND NOT A TICKET, though the money/ set has both. At 22px in the
+  // tab bar a ticket's perforated edge disappears and what is left is a rounded
+  // rectangle — which is also what the 저장 bookmark two tabs over reduces to.
+  // The calendar keeps its two hanging rings and its rule at that size, so the
+  // two tabs stay distinguishable by silhouette alone, which is the only signal
+  // this bar has (there is no accent colour to mark selection with).
+  events: (
+    <>
+      {/* The two rings and the rule. `strokeMiterlimit` is on these four in the
+          source; `exhibition` is the only other icon in the set that ships it. */}
+      <path d="M8 2V5" {...line} strokeMiterlimit={10} />
+      <path d="M16 2V5" {...line} strokeMiterlimit={10} />
+      <path d="M3.5 9.08984H20.5" {...line} strokeMiterlimit={10} />
+      <path
+        d="M21 8.5V17C21 20 19.5 22 16 22H8C4.5 22 3 20 3 17V8.5C3 5.5 4.5 3.5 8 3.5H16C19.5 3.5 21 5.5 21 8.5Z"
+        {...line}
+        strokeMiterlimit={10}
+      />
+      {/* The three date marks are DOTS — zero-length round-capped strokes — so
+          they carry the source's 2px weight rather than the set's 1.5px. At 1.5
+          they very nearly vanish, which is what makes this read as an empty box
+          instead of a calendar. */}
+      <path d="M11.9955 13.6992H12.0045" {...line} strokeWidth={2} />
+      <path d="M8.29431 13.6992H8.30329" {...line} strokeWidth={2} />
+      <path d="M8.29431 16.6992H8.30329" {...line} strokeWidth={2} />
     </>
   ),
 
@@ -244,6 +275,20 @@ const BOLD: Partial<Record<IconName, ReactNode>> = {
       d="M20.04 6.81969L14.28 2.78969C12.71 1.68969 10.3 1.74969 8.78999 2.91969L3.77999 6.82969C2.77999 7.60969 1.98999 9.20969 1.98999 10.4697V17.3697C1.98999 19.9197 4.05999 21.9997 6.60999 21.9997H17.39C19.94 21.9997 22.01 19.9297 22.01 17.3797V10.5997C22.01 9.24969 21.14 7.58969 20.04 6.81969ZM12.75 17.9997C12.75 18.4097 12.41 18.7497 12 18.7497C11.59 18.7497 11.25 18.4097 11.25 17.9997V14.9997C11.25 14.5897 11.59 14.2497 12 14.2497C12.41 14.2497 12.75 14.5897 12.75 14.9997V17.9997Z"
       {...solid}
     />
+  ),
+
+  // time/bold/calendar_date-schedule-planner-event-timeline-reminder
+  events: (
+    <>
+      <path
+        d="M16.75 3.56V2C16.75 1.59 16.41 1.25 16 1.25C15.59 1.25 15.25 1.59 15.25 2V3.5H8.74999V2C8.74999 1.59 8.40999 1.25 7.99999 1.25C7.58999 1.25 7.24999 1.59 7.24999 2V3.56C4.54999 3.81 3.23999 5.42 3.03999 7.81C3.01999 8.1 3.25999 8.34 3.53999 8.34H20.46C20.75 8.34 20.99 8.09 20.96 7.81C20.76 5.42 19.45 3.81 16.75 3.56Z"
+        {...solid}
+      />
+      <path
+        d="M20 9.83984H4C3.45 9.83984 3 10.2898 3 10.8398V16.9998C3 19.9998 4.5 21.9998 8 21.9998H16C19.5 21.9998 21 19.9998 21 16.9998V10.8398C21 10.2898 20.55 9.83984 20 9.83984ZM9.21 18.2098C9.11 18.2998 9 18.3698 8.88 18.4198C8.76 18.4698 8.63 18.4998 8.5 18.4998C8.37 18.4998 8.24 18.4698 8.12 18.4198C8 18.3698 7.89 18.2998 7.79 18.2098C7.61 18.0198 7.5 17.7598 7.5 17.4998C7.5 17.2398 7.61 16.9798 7.79 16.7898C7.89 16.6998 8 16.6298 8.12 16.5798C8.36 16.4798 8.64 16.4798 8.88 16.5798C9 16.6298 9.11 16.6998 9.21 16.7898C9.39 16.9798 9.5 17.2398 9.5 17.4998C9.5 17.7598 9.39 18.0198 9.21 18.2098ZM9.42 14.3798C9.37 14.4998 9.3 14.6098 9.21 14.7098C9.11 14.7998 9 14.8698 8.88 14.9198C8.76 14.9698 8.63 14.9998 8.5 14.9998C8.37 14.9998 8.24 14.9698 8.12 14.9198C8 14.8698 7.89 14.7998 7.79 14.7098C7.7 14.6098 7.63 14.4998 7.58 14.3798C7.53 14.2598 7.5 14.1298 7.5 13.9998C7.5 13.8698 7.53 13.7398 7.58 13.6198C7.63 13.4998 7.7 13.3898 7.79 13.2898C7.89 13.1998 8 13.1298 8.12 13.0798C8.36 12.9798 8.64 12.9798 8.88 13.0798C9 13.1298 9.11 13.1998 9.21 13.2898C9.3 13.3898 9.37 13.4998 9.42 13.6198C9.47 13.7398 9.5 13.8698 9.5 13.9998C9.5 14.1298 9.47 14.2598 9.42 14.3798ZM12.71 14.7098C12.61 14.7998 12.5 14.8698 12.38 14.9198C12.26 14.9698 12.13 14.9998 12 14.9998C11.87 14.9998 11.74 14.9698 11.62 14.9198C11.5 14.8698 11.39 14.7998 11.29 14.7098C11.11 14.5198 11 14.2598 11 13.9998C11 13.7398 11.11 13.4798 11.29 13.2898C11.39 13.1998 11.5 13.1298 11.62 13.0798C11.86 12.9698 12.14 12.9698 12.38 13.0798C12.5 13.1298 12.61 13.1998 12.71 13.2898C12.89 13.4798 13 13.7398 13 13.9998C13 14.2598 12.89 14.5198 12.71 14.7098Z"
+        {...solid}
+      />
+    </>
   ),
 
   // school-learning/bold/bookmark_save-favorite-link-website-organize-read-later

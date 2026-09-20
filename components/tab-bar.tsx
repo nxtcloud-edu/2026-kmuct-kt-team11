@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { Icon, type IconName } from './icons';
 
 /**
- * The signed-in chrome: four tabs in a floating pill, and nothing else.
+ * The signed-in chrome: five tabs in a floating pill, and nothing else.
  *
  * Tab switches are instant because the bar renders inside the animating
  * subtree, so giving tab routes a transition would slide the bar itself; the
@@ -27,8 +27,23 @@ import { Icon, type IconName } from './icons';
  * data crosses into client-side state.
  */
 
+/**
+ * ORDER IS INSIDE-OUT: what is happening, then what is mine, then who I am.
+ *
+ * 이벤트 sits SECOND, beside 홈, because the two are the same kind of surface —
+ * things to look at that are not yours yet. 저장한 곳 and 그룹 are what you have
+ * kept, and 계정 is the one nobody visits twice. Serial position effect: the
+ * first and last slots are the ones a person remembers, so discovery takes an
+ * early slot and the settings screen keeps the end.
+ *
+ * FIVE IS THE CEILING. At 430px minus two gutters the bar is 398px, so five tabs
+ * are ~80px each — still well clear of the 44px minimum, and the 10px labels
+ * still fit 저장한 곳 on one line. A sixth would not; a sixth tab is a 더보기
+ * sheet, not another pill.
+ */
 const TABS: { href: string; label: string; icon: IconName }[] = [
   { href: '/home', label: '홈', icon: 'home' },
+  { href: '/events', label: '이벤트', icon: 'events' },
   { href: '/saved-places', label: '저장한 곳', icon: 'saved' },
   { href: '/groups', label: '그룹', icon: 'groups' },
   { href: '/account', label: '계정', icon: 'account' },

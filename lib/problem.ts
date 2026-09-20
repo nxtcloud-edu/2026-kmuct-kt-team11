@@ -33,6 +33,10 @@ export type ProblemCode =
   | 'recommendation-unavailable'
   | 'ingest-breaker-tripped'
   | 'ingest-not-configured'
+  | 'nearby-not-configured'
+  | 'event-not-located'
+  | 'tts-unavailable'
+  | 'tts-failed'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -77,6 +81,38 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   // retry. The detail names the VARIABLE and never its value — `IG_SESSION_ID`
   // is a bearer credential for an entire Instagram account.
   'ingest-not-configured':    { status: 503, title: 'Ingestion not configured',    detail: '릴스 수집에 필요한 환경 변수가 설정되지 않았어요.' },
+  // Same class as `ingest-not-configured` and deliberately its own code: this is
+  // a DIFFERENT capability with a different variable behind it, and a user told
+  // "릴스 수집이 설정되지 않았어요" while tapping 주변 장소 찾기 learns nothing. The
+  // detail names neither variable nor value — `APIFY_TOKEN` and `GEMINI_API_KEY`
+  // are billed credentials, and a problem response is a thing users can read.
+  'nearby-not-configured':    { status: 503, title: 'Nearby search not configured', detail: '주변 장소를 찾는 기능이 이 환경에 설정되어 있지 않아요. 찾아보지 못했을 뿐, 근처에 아무것도 없다는 뜻은 아니에요.' },
+  // NOT a 404, and the difference is the whole message: the event exists, the
+  // user is looking at its card, and what is missing is a LOCATION. Most yanolja
+  // listings publish a hall name (`NOL 유니플렉스 1관`) and no street address, so
+  // there is nothing to geocode and nothing to pin on a map — and inventing
+  // coordinates to make the save button work would put a wrong pin in somebody's
+  // saved places forever. The screen disables the control and this is the
+  // backstop for a request that arrives anyway.
+  'event-not-located':        { status: 409, title: 'Event has no saveable location', detail: '이 행사는 정확한 위치를 확인하지 못해서 저장할 수 없어요. 예매 페이지에서 장소를 확인해 주세요.' },
+  // The third member of the `*-not-configured` family, and the only one the
+  // CLIENT is expected to RECOVER from rather than display. Every browser that
+  // can run the assistant already has an on-device voice, so "the hosted voice
+  // is not usable here" never means "you get no voice" — the sheet hears this
+  // and re-speaks the same answer through `speechSynthesis`. See the fallback in
+  // lib/speech/fallback-synthesizer.ts.
+  //
+  // It deliberately covers BOTH halves of unusable — no key configured at all,
+  // and a key that authenticates but whose scopes or plan refuse synthesis (the
+  // 401/402/403 mapped in app/api/tts/route.ts). The remedy is the same for both
+  // (someone changes a dashboard setting) and neither is fixed by retrying, so
+  // splitting them would buy the reader nothing. The detail names neither the
+  // vendor nor the variable, for the reason `nearby-not-configured` gives.
+  'tts-unavailable':          { status: 503, title: 'Voice not available',         detail: '이 환경에서는 준비된 목소리를 쓸 수 없어요. 기기에 있는 목소리로 읽어 드릴게요.' },
+  // Unlike the above, this one IS worth retrying: the provider was configured,
+  // reachable and willing, and the request still failed. 502 rather than 503
+  // because the failure is upstream's, not a gap in this deployment.
+  'tts-failed':               { status: 502, title: 'Voice synthesis failed',      detail: '음성으로 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 
