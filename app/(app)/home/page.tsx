@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Card, Content } from '@/components/surface';
+import { PlaceDeck } from './deck';
 import { requireSession } from '@/lib/require-session';
 import { listPlacesNearby, listSavedPlacesForUser } from '@/lib/saved-places';
-import type { SavedPlace } from '@/lib/api/types';
 
 export const metadata: Metadata = { title: '홈' };
 
@@ -25,7 +25,8 @@ export default async function HomePage() {
   const user = await requireSession();
 
   const [saved, nearby] = await Promise.all([
-    listSavedPlacesForUser(user.id, 10),
+    // The deck is the whole set, not a preview — it is the screen's main act.
+    listSavedPlacesForUser(user.id, 30),
     // No home area means no "near you" section to fill — do not ask the
     // database a question whose answer cannot be shown.
     user.home_area ? listPlacesNearby(user.home_area, user.id) : Promise.resolve([]),
@@ -36,12 +37,23 @@ export default async function HomePage() {
   return (
     <Content>
       <header>
-        <h1 style={{ font: 'var(--type-tab-header)', letterSpacing: 'var(--tab-header-ls)' }}>
-          {user.display_name}님
+        <span
+          className="inline-flex items-center rounded-[var(--radius-sm)] bg-surface-1 px-[var(--space-7)] py-[var(--space-3)] text-secondary"
+          style={{ font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)' }}
+        >
+          내 장소
+        </span>
+
+        {/* A question, not a greeting. A saved place is a decision the user
+            deferred, and the screen's job is to put one back in front of them. */}
+        <h1
+          className="mt-[var(--space-11)]"
+          style={{ font: 'var(--type-screen-title)', letterSpacing: 'var(--screen-title-ls)' }}
+        >
+          {user.display_name}님, 저장만 해두고
+          <br />
+          다시 꺼내볼까요?
         </h1>
-        <p className="mt-1 text-secondary" style={{ font: 'var(--type-meta)' }}>
-          오늘 어디 갈까요?
-        </p>
       </header>
 
       {/* Nothing to show is one line, not a designed screen. An illustration or
@@ -53,13 +65,7 @@ export default async function HomePage() {
         </p>
       ) : null}
 
-      <Section title="저장한 곳" href="/saved-places" empty={saved.length === 0}>
-        <ul className="flex list-none gap-[var(--rail-gap)] overflow-x-auto p-0">
-          {saved.map((s) => (
-            <SavedRailItem key={s.id} saved={s} />
-          ))}
-        </ul>
-      </Section>
+      <PlaceDeck places={saved} />
 
       {/* Always empty, so this never renders — and that is the point. Matching a
           place to an MBTI type needs a recommendation source, and there is none:
@@ -119,31 +125,6 @@ function Section({
       </div>
       <div className="mt-[var(--space-9)]">{children}</div>
     </section>
-  );
-}
-
-/**
- * There is no photography in the product yet, so the thumbnail is an empty
- * tinted square and stays one. A placeholder image or a glyph would be
- * inventing content the row does not have.
- */
-function SavedRailItem({ saved }: { saved: SavedPlace }) {
-  const { place } = saved;
-
-  return (
-    <li className="w-[132px] shrink-0">
-      <div aria-hidden className="aspect-square w-full rounded-[var(--radius-photo)] bg-surface-2" />
-      {/* `place` is null while status is 'pending' — slice 3's extractor can
-          produce a saved row before it has resolved to a real venue. */}
-      <p className="mt-[var(--space-7)] truncate" style={{ font: 'var(--type-card-title)' }}>
-        {place?.name ?? '장소를 확인하는 중이에요'}
-      </p>
-      {place?.area ? (
-        <p className="mt-0.5 truncate text-secondary" style={{ font: 'var(--type-caption)' }}>
-          {place.area}
-        </p>
-      ) : null}
-    </li>
   );
 }
 

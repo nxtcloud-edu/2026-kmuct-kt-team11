@@ -147,8 +147,11 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
                     type="button"
                     onClick={() => patch({ mbti: t })}
                     aria-pressed={selected}
-                    className={`flex flex-col items-center gap-[var(--space-4)] rounded-[var(--radius-md)] p-[var(--space-4)] transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
-                      selected ? 'bg-ink' : 'bg-surface-2'
+                    // Selection is an outline, not an inverted fill. The art is
+                    // transparent, so filling the tile with ink would swallow the
+                    // dark characters — ISTJ and INTJ are near-black themselves.
+                    className={`flex flex-col items-center gap-[var(--space-4)] rounded-[var(--radius-xl)] bg-surface-1 p-[var(--space-5)] transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
+                      selected ? 'outline-2 -outline-offset-2 outline-ink' : ''
                     }`}
                   >
                     <Image
@@ -156,10 +159,10 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
                       alt=""
                       width={64}
                       height={64}
-                      className="h-auto w-full rounded-[var(--radius-xs)]"
+                      className="h-auto w-full rounded-[var(--radius-md)]"
                     />
                     <span
-                      className={selected ? 'text-on-ink' : 'text-secondary'}
+                      className={selected ? 'text-ink' : 'text-secondary'}
                       style={{ font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)' }}
                     >
                       {t}

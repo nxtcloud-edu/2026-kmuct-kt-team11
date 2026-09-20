@@ -95,6 +95,7 @@
      them. Gaja needs both, so they are composed here to the same pattern.
      letter-spacing cannot live in the `font` shorthand — pair these with
      `letter-spacing: var(--tag-ls)` / `var(--tab-ls)` at the call site. */
+  --type-post-title:600 var(--post-title-size)/var(--post-title-lh) var(--font-display-semibold),var(--font-fallback-kr);
   --type-tag:600 var(--tag-size)/var(--tag-lh) var(--font-body-semibold),var(--font-fallback-kr);
   --type-tab:500 var(--tab-size)/var(--tab-lh) var(--font-body-medium),var(--font-fallback-kr);
 
