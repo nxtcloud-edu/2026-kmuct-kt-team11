@@ -34,3 +34,33 @@ export const CATEGORY_ORDER: PlaceCategory[] = [
 export function categoryLabel(category: string): string {
   return CATEGORY_KO[category] ?? category;
 }
+
+/**
+ * The 3D object each category wears in the saved-places filter row.
+ *
+ * Keyed by `PlaceCategory` rather than `string`, unlike the labels above: a new
+ * value in the CHECK constraint should fail the build here rather than render a
+ * chip with a hole in it, and unlike a missing label there is no sane fallback —
+ * the raw enum value is at least readable, a missing image is a broken icon.
+ *
+ * CHOSEN FOR SILHOUETTE AT 22px, not for wit. A 3D render loses every internal
+ * detail at chip size, so the test each of these passed is "is it still that
+ * object when it is 22 pixels tall": a latte cup, a bowl of soup, a framed
+ * painting, a shopfront, a ticket. The more interesting renders lost it — a
+ * marble bust for 전시 and a pottery wheel for 체험 both collapse into a brown
+ * smudge. 전시 also deliberately takes the painting rather than the columned
+ * museum, which at 22px is indistinguishable from any other beige building.
+ *
+ * Files live in `public/category-3d/`, copied from the iconsax `ai-3d` library
+ * in `anu-designer` and re-encoded at 128px through PIL — a new image, pixels
+ * copied, so no ancillary PNG chunk survives the trip. That is not tidiness: a
+ * gAMA+sRGB pair in a PNG is what rendered this repo's MBTI art pure black
+ * through `next/image`, and these come from the same shelf.
+ */
+export const CATEGORY_ICON: Record<PlaceCategory, string> = {
+  cafe: '/category-3d/cafe.png',
+  restaurant: '/category-3d/restaurant.png',
+  exhibition: '/category-3d/exhibition.png',
+  shop: '/category-3d/shop.png',
+  activity: '/category-3d/activity.png',
+};

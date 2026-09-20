@@ -199,13 +199,22 @@ export function groupPlaces(rows: SavedPlace[], farIds: ReadonlySet<string>): Pl
 export type Facet = { key: PlaceCategory; label: string; count: number };
 
 /**
- * The categories actually present, in the enum's own order.
+ * EVERY category the database can hold, in the enum's own order, each with the
+ * number of saved rows behind it — zero included.
  *
- * Derived from the rows rather than from the enum, because a chip for a category
- * nobody saved is a control with no data behind it — the visual record deletes
- * those, heading included. The caller is expected to drop the whole row when
- * fewer than two come back: filtering eleven cafés by "카페" is a choice that
- * changes nothing, and Hick's Law charges for it anyway.
+ * This used to return only the categories present, and the caller dropped the
+ * whole row below two. That was the wrong read of "if there is no data behind a
+ * line, delete the line". The data behind a chip is not the places; it is the
+ * count, and `0` is a count. A row derived from the rows is a row whose
+ * membership changes as you save — the chip that was third yesterday is fourth
+ * today, and 저장한 곳 stops being a stable place with five kinds of thing in it
+ * and becomes a summary of what you happened to keep. Five is what the CHECK
+ * constraint allows, five is what the row shows, and the counts say which of
+ * them you have actually used.
+ *
+ * The Hick's Law cost of the four extra chips is real and is paid once: they are
+ * in a fixed order, and the ones with nothing behind them are not pressable (see
+ * `FacetChips` in `screen.tsx`), so they are read, not weighed.
  */
 export function categoryFacets(rows: SavedPlace[]): Facet[] {
   const counts = new Map<string, number>();
@@ -213,9 +222,9 @@ export function categoryFacets(rows: SavedPlace[]): Facet[] {
     if (!row.place) continue;
     counts.set(row.place.category, (counts.get(row.place.category) ?? 0) + 1);
   }
-  return CATEGORY_ORDER.filter((key) => counts.has(key)).map((key) => ({
+  return CATEGORY_ORDER.map((key) => ({
     key,
     label: categoryLabel(key),
-    count: counts.get(key)!,
+    count: counts.get(key) ?? 0,
   }));
 }

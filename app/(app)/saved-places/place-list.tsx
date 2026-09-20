@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import Image from 'next/image';
 import { useEffect, useRef } from 'react';
 import { Chip } from '@/components/surface';
@@ -190,19 +191,35 @@ function Detail({ row }: { row: SavedPlace }) {
           {' 저장'}
         </p>
 
-        {row.source_url ? (
-          // `noreferrer` as well as `noopener`: the destination is Instagram and
-          // it has no business being told which of our screens sent the reader.
-          <a
-            href={row.source_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-[var(--space-7)] inline-flex h-[var(--tap-min)] items-center text-secondary"
+        <div className="flex flex-wrap items-center gap-x-[var(--space-11)]">
+          {/* The way into everything the caption gave us that does not fit in a
+              row: hours, the menu with prices, the venue's own account, and the
+              other places from the same reel. Selecting the row marks the pin —
+              that is the row's job, and it must keep working without leaving the
+              map — so the full detail is a deliberate second step rather than
+              something a tap on the list can trigger by accident. */}
+          <Link
+            href={`/saved-places/${row.id}`}
+            className="mt-[var(--space-7)] inline-flex h-[var(--tap-min)] items-center text-ink"
             style={{ font: 'var(--type-meta)' }}
           >
-            릴스 보기 ›
-          </a>
-        ) : null}
+            자세히 보기 ›
+          </Link>
+
+          {row.source_url ? (
+            // `noreferrer` as well as `noopener`: the destination is Instagram and
+            // it has no business being told which of our screens sent the reader.
+            <a
+              href={row.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-[var(--space-7)] inline-flex h-[var(--tap-min)] items-center text-secondary"
+              style={{ font: 'var(--type-meta)' }}
+            >
+              릴스 보기 ›
+            </a>
+          ) : null}
+        </div>
       </div>
     </div>
   );

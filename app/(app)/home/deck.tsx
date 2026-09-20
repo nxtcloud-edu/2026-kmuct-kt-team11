@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SavedPlace } from '@/lib/api/types';
 import { reelThumb } from '@/lib/reel-thumb';
@@ -45,9 +46,17 @@ const CATEGORY_KO: Record<string, string> = {
 /** Far enough that a scroll or a stray tap is not mistaken for a decision. */
 const COMMIT_PX = 72;
 
+/**
+ * Below this the pointer did not really move and the gesture was a tap.
+ * Deliberately larger than 0: a finger never lifts from exactly where it
+ * landed, and a 1px tremor must not be read as a swipe that went nowhere.
+ */
+const TAP_PX = 6;
+
 export function PlaceDeck({ places }: { places: SavedPlace[] }) {
   const [sort, setSort] = useState<SortKey>('recent');
   const [index, setIndex] = useState(0);
+  const router = useRouter();
   const [drag, setDrag] = useState(0);
   // Whether a drag is in flight is state, not a ref: it decides whether the card
   // gets a transition, which is a render-time question. Reading a ref during
@@ -110,9 +119,19 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
   }
   function onPointerUp() {
     if (dragStart.current === null) return;
+    // A tap and a swipe arrive through the same three events, so the only thing
+    // separating them is how far the pointer travelled. Under TAP_PX it was a
+    // tap and the card opens; past COMMIT_PX it was a swipe and the deck turns.
+    // Wrapping the card in a <Link> instead would have been simpler and wrong:
+    // the browser starts a native link-drag on pointer-down, which eats the
+    // gesture this deck exists for.
+    const travelled = Math.abs(drag);
     if (drag <= -COMMIT_PX && index < total - 1) go(1);
     else if (drag >= COMMIT_PX && index > 0) go(-1);
-    else setDrag(0);
+    else {
+      setDrag(0);
+      if (travelled < TAP_PX) router.push(`/saved-places/${current.id}`);
+    }
     dragStart.current = null;
     setDragging(false);
   }

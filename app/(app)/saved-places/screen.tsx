@@ -1,9 +1,11 @@
 'use client';
 
+import Image from 'next/image';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { Content, PageHeader } from '@/components/surface';
 import { Notice } from '@/components/states';
 import type { PlaceCategory, SavedPlace } from '@/lib/api/types';
+import { CATEGORY_ICON } from '@/lib/categories';
 import { PlaceList } from './place-list';
 import { PlacesMap } from './places-map';
 import { Sheet, detentsFor, useMeasuredHeight } from './sheet';
@@ -198,21 +200,20 @@ function MapFirst({
         onUnavailable={onMapDown}
       />
 
-      {/* Chips left, camera controls right, both clear of the sheet at every
-          detent because both are anchored to the top. */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-[var(--space-9)] p-[var(--gutter)]">
+      {/* Filter row first, camera controls under it on the right — both anchored
+          to the top, so both stay clear of the sheet at every detent.
+
+          The two used to share one line, chips left and plate right. Six chips
+          wearing icons do not fit in what was left after the plate: the row
+          showed three and a half of them and the rest were a swipe away, which
+          is not what "all five, always" means. The plate costs one line of
+          vertical space and the map underneath it is still the map. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col items-stretch gap-[var(--space-7)] p-[var(--gutter)]">
         <div className="pointer-events-auto min-w-0">
-          {/* One category means the chip row is a control that cannot change
-              anything, so it is not drawn — the record deletes lines with no
-              data behind them, and Hick's Law charges for a choice either way.
-              With the eleven real saved places, all cafés, this is exactly what
-              happens and the row is absent. */}
-          {facets.length > 1 ? (
-            <FacetChips facets={facets} value={category} onChange={setCategory} />
-          ) : null}
+          <FacetChips facets={facets} value={category} onChange={setCategory} />
         </div>
 
-        <div className="pointer-events-auto flex shrink-0 flex-col items-end gap-[var(--space-7)]">
+        <div className="pointer-events-auto flex shrink-0 flex-col items-end gap-[var(--space-7)] self-end">
           <Plate>
             <PlateButton
               onClick={() => {
@@ -356,6 +357,32 @@ function PlateButton({
  * for — the applied filter has to stay visible next to the pins it is hiding.
  * Active state is a fill inversion, not a colour: there is no accent to spend,
  * and the record marks selection the same way in the tab bar.
+ *
+ * ALL FIVE CATEGORIES, ALWAYS — and the two consequences of that.
+ *
+ * 1. THE COUNT IS ALWAYS ON THE CHIP, `0` INCLUDED. The comment on the facets
+ *    said a chip row that loses the chip you need to get back out of a filter is
+ *    a trap. A chip that leads somewhere empty is the same trap seen from the
+ *    other side: you tap 전시, every pin vanishes, the sheet says 0곳, and
+ *    nothing on screen tells you whether the filter is broken or you simply have
+ *    no exhibitions saved. The count answers that BEFORE the tap, which is the
+ *    only time the answer is worth anything.
+ *
+ * 2. A ZERO CHIP IS NOT PRESSABLE, and what marks it is the missing fill. In
+ *    this system a chip IS its tinted surface — `--surface-2` is what makes the
+ *    word look like an object you can push. Take the fill away and the same word
+ *    reads as a label, which is exactly what it now is. This is the only
+ *    treatment available that says "not a control" without breaking the measured
+ *    contrast table: dimming the chip the way `PlateButton` dims (opacity 40%)
+ *    would drop `--text-secondary` to roughly 2:1 on the plate, and `--tertiary`
+ *    is decorative-only for the same reason. Label on the white plate is
+ *    5.33:1 — better than the 4.76:1 the live chips have on `--surface-2`.
+ *    The 3D icon dims instead, because the icon is `alt=""` decoration and the
+ *    table does not cover it.
+ *
+ * The icons need no treatment of their own: they sit on the opaque `--canvas`
+ * plate documented above `Plate`, never on tiles, so the map cannot get behind
+ * them. `transition-opacity` was already the chip's only motion and stays.
  */
 function FacetChips({
   facets,
@@ -370,18 +397,35 @@ function FacetChips({
     <div
       role="group"
       aria-label="분류 필터"
-      className="flex max-w-full gap-[var(--space-4)] overflow-x-auto rounded-[var(--radius-xl)]
-                 bg-canvas p-[var(--space-4)]"
+      // SCROLLS, does not wrap. Six tiles do not fit the 430px canvas, and a
+      // second line cost 41px of the map on a screen whose whole point is the
+      // map. Horizontal overflow keeps the row one line tall; the tiles are
+      // deliberately narrow enough that the sixth is half-visible at rest,
+      // which is what tells you the row continues without a scrollbar.
+      //
+      // `scrollbar-width: none` hides the desktop bar; the row stays reachable
+      // by trackpad, shift-wheel, and keyboard focus, which moves the scroller
+      // on its own.
+      className="flex snap-x gap-[var(--space-6)] overflow-x-auto overscroll-x-contain
+                 rounded-[var(--radius-xl)] bg-canvas px-[var(--space-7)] py-[var(--space-6)]
+                 [-ms-overflow-style:none] [scrollbar-width:none]
+                 [&::-webkit-scrollbar]:hidden"
     >
-      {/* 전체 first: serial position, and it is the state the screen opens in. */}
-      <FacetChip on={value === null} onClick={() => onChange(null)}>
-        전체
-      </FacetChip>
+      {/* No 전체 tile. It is not a kind of place, and the state it represents —
+          no filter — is reachable by tapping the active tile again, which is
+          where a user already looks to undo a filter they just set. One fewer
+          control, and the row is then six things of one kind rather than five
+          plus an odd one out. */}
       {facets.map((facet) => (
-        <FacetChip key={facet.key} on={value === facet.key} onClick={() => onChange(facet.key)}>
-          {facet.label}
-          <span className="tabular-nums"> {facet.count}</span>
-        </FacetChip>
+        <FacetChip
+          key={facet.key}
+          on={value === facet.key}
+          empty={facet.count === 0}
+          icon={CATEGORY_ICON[facet.key]}
+          label={facet.label}
+          count={facet.count}
+          onClick={() => onChange(value === facet.key ? null : facet.key)}
+        />
       ))}
     </div>
   );
@@ -389,26 +433,62 @@ function FacetChips({
 
 function FacetChip({
   on,
+  empty,
+  icon,
+  label,
+  count,
   onClick,
-  children,
 }: {
   on: boolean;
+  empty?: boolean;
+  icon?: string;
+  label: string;
+  count: number;
   onClick: () => void;
-  children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       aria-pressed={on}
-      onClick={onClick}
-      className={`flex h-[36px] shrink-0 items-center whitespace-nowrap rounded-[var(--radius-md)]
-                  px-[var(--space-11)] transition-opacity duration-200
-                  active:opacity-[var(--press-opacity)] ${
-                    on ? 'bg-ink text-on-ink' : 'bg-surface-2 text-secondary'
+      // The count is in the accessible name rather than only in the visible
+      // digit, so a screen reader reads "카페 11곳" and not a bare category.
+      aria-label={`${label} ${count}곳`}
+      // `disabled` rather than `aria-disabled`: there is nothing to explain on
+      // focus that the visible 0 does not already say, and a focusable control
+      // that swallows its own press is worse than one you cannot reach.
+      disabled={empty}
+      className={`flex w-[62px] shrink-0 snap-start flex-col items-center gap-[var(--space-3)]
+                  rounded-[var(--radius-lg)] px-[var(--space-3)] py-[var(--space-5)]
+                  transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
+                    on ? 'bg-ink text-on-ink' : empty ? 'text-tertiary' : 'text-secondary'
                   }`}
-      style={{ font: 'var(--type-meta)' }}
+      onClick={onClick}
     >
-      {children}
+      {icon ? (
+        <Image
+          src={icon}
+          alt=""
+          width={30}
+          height={30}
+          // A 3D render carries its own light. Dimming rather than greying keeps
+          // an empty category recognisable as the same object, which is the
+          // point of showing it at all.
+          className={empty ? 'opacity-30' : undefined}
+        />
+      ) : null}
+
+      {/* Label under the icon, not beside it. Beside it the row measured 482px
+          against a 430px canvas and wrapped; stacked, the tile is as wide as
+          its widest word and six fit in one scrollable line.
+
+          The count is NOT drawn. A row of digits is noise on a filter whose
+          whole job is to be glanced at, and the map behind it already shows how
+          many pins a category has. It survives in `aria-label` because a screen
+          reader has no map to glance at, and in the dimmed state, which is what
+          an empty category looks like without spelling out a zero. */}
+      <span className="whitespace-nowrap" style={{ font: 'var(--type-caption)' }}>
+        {label}
+      </span>
     </button>
   );
 }

@@ -278,8 +278,17 @@ export function PlacesMap({
           script's promise resolves, and a container that only appears once
           loading finishes is exactly the race this component has to avoid.
           `--surface-2` underneath so a slow tile load is a grey field rather
-          than a white hole that looks like a broken map. */}
-      <div ref={containerRef} className="absolute inset-0 bg-surface-2" />
+          than a white hole that looks like a broken map.
+
+          SIZED WITH h-full, NOT `absolute inset-0`. Naver's Map constructor
+          writes `position: relative` onto its container as an inline style, and
+          an inline style beats a utility class — so `absolute` silently became
+          `relative`, `inset-0` stopped applying, and the div collapsed to zero
+          height. The map mounted, drew its copyright control, and rendered no
+          tiles into a 399x0 box, which looks exactly like a broken API key.
+          The parent is `relative h-dvh`, so `h-full` is the same rectangle by a
+          route Naver cannot overwrite. */}
+      <div ref={containerRef} className="h-full w-full bg-surface-2" />
 
       {pinNodes.map(({ id, category, node }) =>
         createPortal(<Pin category={category} selected={id === selectedId} />, node, id),
