@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { requireSession } from '@/lib/require-session';
 import { countEventsByCategory, listFeedEvents } from '@/lib/events/store';
+import { seoulToday } from '@/lib/events/today';
 import { EventsScreen } from './screen';
 
 export const metadata: Metadata = { title: '이벤트' };
@@ -49,22 +50,12 @@ export default async function EventsPage() {
       // browser — a hydration mismatch that appears only around midnight and
       // only for readers whose clock or timezone differs from the server's.
       //
-      // `Asia/Seoul` explicitly, not the server's local zone: `events.closes_on`
-      // is a `date` and the question "has this ended" is asked in the timezone
-      // the venue is in. A function running in `icn1` happens to agree today;
-      // pinning it means it still agrees if the region ever changes.
+      // `seoulToday()` is shared with the home screen rather than defined here:
+      // both render the same card, and two local definitions of "today" are two
+      // chances for one screen to say `D-1` while the other says `오늘 종료`.
+      // See lib/events/today.ts for the timezone argument.
       // ──────────────────────────────────────────────────────────────────────
       today={seoulToday()}
     />
   );
-}
-
-/** `YYYY-MM-DD` in Asia/Seoul. `en-CA` is the locale whose short date IS ISO. */
-function seoulToday(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
 }

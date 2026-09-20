@@ -1,14 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import Image from 'next/image';
 
-import { Card, ChoicePill, Content, PageHeader } from '@/components/surface';
+import { ChoicePill, Content, PageHeader } from '@/components/surface';
 import { EmptyState } from '@/components/states';
 import type { EventCategory, FeedEvent } from '@/lib/api/types';
 import { EVENT_CATEGORY_KO, EVENT_CATEGORY_ORDER } from '@/lib/events/types';
-import { formatRun, runStatus } from '@/lib/events/format';
-import { SaveButton } from './save-button';
+import { EventCard } from './card';
 
 /**
  * The events feed.
@@ -37,6 +35,10 @@ import { SaveButton } from './save-button';
  * A round trip per chip would make the cheapest interaction on the screen the
  * slowest one.
  * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * THE CARD ITSELF LIVES IN `./card.tsx`, not here, because the home screen shows
+ * the same object. What this screen owns is the rail, the chunking and the set of
+ * saved place ids; what a card looks like is not a property of this screen.
  *
  * NO EFFECTS IN THIS FILE. Both pieces of state are initialised from props once
  * and then only ever changed by something the user did. In particular `saved`
@@ -166,126 +168,6 @@ export function EventsScreen({
         </div>
       )}
     </Content>
-  );
-}
-
-/* ── Card ─────────────────────────────────────────────────────────────────── */
-
-function EventCard({
-  event,
-  today,
-  saved,
-  onSaved,
-}: {
-  event: FeedEvent;
-  today: string;
-  saved: boolean;
-  onSaved: (placeId: string) => void;
-}) {
-  const run = formatRun(event.opens_on, event.closes_on, today);
-  const status = runStatus(event.opens_on, event.closes_on, today);
-  // `성수 · 더현대 서울 B1` when both exist; whichever exists when only one does.
-  // Built by filtering rather than with a conditional separator so a null never
-  // leaves a dangling middle dot.
-  const where = [event.area, event.venue].filter(Boolean).join(' · ');
-
-  return (
-    <Card as="li" className="flex flex-col gap-[var(--space-9)] p-[var(--space-9)]">
-      <div className="flex gap-[var(--space-9)]">
-        <Poster src={event.poster_url} />
-
-        <div className="flex min-w-0 flex-1 flex-col">
-          <h3 className="line-clamp-2" style={{ font: 'var(--type-post-title)', letterSpacing: 'var(--post-title-ls)' }}>
-            {event.title}
-          </h3>
-
-          {where ? (
-            <p className="mt-[var(--space-4)] line-clamp-1 text-secondary" style={{ font: 'var(--type-meta)' }}>
-              {where}
-            </p>
-          ) : null}
-
-          {run ? (
-            <p className="mt-[var(--space-3)] text-secondary" style={{ font: 'var(--type-caption)' }}>
-              {run}
-              {status ? (
-                <>
-                  {' · '}
-                  {/* THE ONE PLACE A SATURATED COLOUR APPEARS ON THIS SCREEN,
-                      and only on `ending`. `--error` here is semantic — it marks
-                      a deadline, not a brand — which is the exception the record
-                      allows. 곧 시작 gets no colour: it is information, not a
-                      deadline, and colouring both would make neither mean
-                      anything. The words carry the meaning either way, so the
-                      colour is never the only signal. */}
-                  <span className={status.ending ? 'text-error' : undefined}>{status.label}</span>
-                </>
-              ) : null}
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Actions last, after the reader has the content they are deciding on.
-          A hairline rather than a gap alone: this row is a different kind of
-          thing from the three lines above it, and the system's way of saying so
-          without elevation is a 1px rule. */}
-      <div className="flex items-center justify-between gap-[var(--space-9)] border-t border-hairline pt-[var(--space-9)]">
-        <a
-          href={event.book_url}
-          target="_blank"
-          // `noopener` is the load-bearing half — without it the opened page gets
-          // a handle on `window.opener` and can navigate this tab.
-          rel="noopener noreferrer"
-          className="flex min-h-[var(--tap-min)] items-center text-secondary
-                     transition-opacity duration-200 active:opacity-[var(--press-opacity-strong)]"
-          style={{ font: 'var(--type-meta)' }}
-        >
-          {/* Says where it goes. `예매하기` alone on a card would imply Gaja takes
-              the booking, and it does not — this leaves the app. */}
-          예매 페이지 열기
-        </a>
-
-        <SaveButton
-          eventId={event.id}
-          placeId={event.place_id}
-          saved={saved}
-          onSaved={onSaved}
-        />
-      </div>
-    </Card>
-  );
-}
-
-/**
- * The poster, or the space where one would be.
- *
- * 3:4 at 72px wide. Posters arrive in every ratio a Korean ticketing site has
- * ever used, so the box is fixed and the image covers it — a card whose height
- * depends on its artwork makes the eye re-adjust between every row, which is the
- * first thing the feed checklist warns about.
- *
- * `--radius-photo` is 2px: photography is nearly square-cornered in this system
- * so it reads as a photograph rather than as another piece of chrome. The
- * `bg-surface-2` underneath is what a missing poster looks like — a tinted
- * surface, not a placeholder icon and not a hole.
- */
-function Poster({ src }: { src: string | null }) {
-  return (
-    <span className="relative block h-[96px] w-[72px] shrink-0 overflow-hidden rounded-[var(--radius-photo)] bg-surface-2">
-      {src ? (
-        <Image
-          src={src}
-          // Empty, deliberately. The title is right beside it and reading the
-          // poster's filename or repeating the title would make a screen reader
-          // announce the same event twice.
-          alt=""
-          fill
-          sizes="72px"
-          className="object-cover"
-        />
-      ) : null}
-    </span>
   );
 }
 
