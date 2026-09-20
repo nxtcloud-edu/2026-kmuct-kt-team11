@@ -1,5 +1,7 @@
+import { redirect } from 'next/navigation';
+
 import { requireSession } from '@/lib/require-session';
-import { AppShell } from '@/components/app-shell';
+import { TabBarShell } from '@/components/tab-bar';
 
 /**
  * The auth gate for every signed-in route.
@@ -16,5 +18,8 @@ import { AppShell } from '@/components/app-shell';
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireSession();
-  return <AppShell displayName={user.display_name}>{children}</AppShell>;
+  // Onboarding is not optional-but-skippable at the route level: every step
+  // inside it can be skipped, but the flow itself runs once before the app.
+  if (!user.onboarded_at) redirect('/onboarding');
+  return <TabBarShell>{children}</TabBarShell>;
 }

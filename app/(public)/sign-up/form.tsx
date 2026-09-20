@@ -6,6 +6,14 @@ import { ApiError, NetworkError, apiFetch } from '@/lib/api/client';
 import { Button } from '@/components/surface';
 
 /**
+ * Deliberately a sibling of sign-in/form.tsx rather than a shared component
+ * with a `mode` prop. The two screens post to the same endpoint today, but
+ * sign-up is where terms, a referral code or a channel pre-selection would land
+ * if any of them are ever added — and a boolean-flagged twin is harder to split
+ * later than two files are to keep in step now.
+ */
+
+/**
  * State ownership: `email` and `status` are local — nothing outside this form
  * reads them and neither survives a reload. The destination lives in the URL
  * (`?next=`), because it must survive the round trip through the inbox.
@@ -25,7 +33,7 @@ type Status =
   | { k: 'sending' }
   | { k: 'error'; message: string; retryAfter?: number };
 
-export function SignInForm() {
+export function SignUpForm() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next');
@@ -119,7 +127,7 @@ export function SignInForm() {
         className="mt-[var(--space-9)] w-full"
         disabled={status.k === 'sending' || email.trim() === ''}
       >
-        {status.k === 'sending' ? '보내는 중…' : '로그인 링크 받기'}
+        {status.k === 'sending' ? '보내는 중…' : '가입 링크 받기'}
       </Button>
     </form>
   );

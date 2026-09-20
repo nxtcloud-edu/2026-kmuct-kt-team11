@@ -1,19 +1,19 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { SignInForm } from './form';
-import { SocialSignIn } from './social';
+import { SignUpForm } from './form';
+import { SocialSignIn } from '../sign-in/social';
 
-export const metadata: Metadata = { title: '로그인' };
+export const metadata: Metadata = { title: '회원가입' };
 
 /**
- * `next` carries the destination the visitor was bounced from, so sign-in
- * returns them where they were going instead of dumping everyone on the default
- * screen. The form reads it client-side via useSearchParams, which is why it
- * needs a Suspense boundary; the social links and the cross-link to sign-up are
- * plain hrefs, so this reads it on the server and builds them directly.
+ * The second of two doors onto one endpoint. `next` carries the destination the
+ * visitor was bounced from, so it has to survive this screen too — the form
+ * reads it client-side via useSearchParams, which is why it needs a Suspense
+ * boundary, while the social links and the cross-link to sign-in are plain
+ * hrefs and are built here on the server.
  */
-export default async function SignInPage({ searchParams }: PageProps<'/sign-in'>) {
+export default async function SignUpPage({ searchParams }: PageProps<'/sign-up'>) {
   const { next } = await searchParams;
   const dest = typeof next === 'string' ? next : null;
   const qs = dest ? `?next=${encodeURIComponent(dest)}` : '';
@@ -34,28 +34,34 @@ export default async function SignInPage({ searchParams }: PageProps<'/sign-in'>
           className="mt-[var(--space-9)]"
           style={{ font: 'var(--type-screen-title)', letterSpacing: 'var(--screen-title-ls)' }}
         >
-          로그인
+          회원가입
         </h1>
 
         <p className="mt-[var(--space-8)] text-secondary" style={{ font: 'var(--type-meta)' }}>
-          이메일로 로그인 링크를 보내드려요. 비밀번호는 없어요.
+          이메일만 있으면 돼요. 비밀번호는 없어요.
         </p>
       </header>
 
       <div className="mt-[var(--space-17)]">
         <Suspense fallback={null}>
-          <SignInForm />
+          <SignUpForm />
         </Suspense>
+
+        {/* --text-secondary, not --text-tertiary: tertiary measures 2.81:1 and
+            may not carry words a user has to read. */}
+        <p className="mt-[var(--space-8)] text-secondary" style={{ font: 'var(--type-caption)' }}>
+          가입하면 이용약관과 개인정보처리방침에 동의하는 것으로 봐요
+        </p>
 
         <SocialSignIn next={dest} />
       </div>
 
       <Link
-        href={`/sign-up${qs}`}
+        href={`/sign-in${qs}`}
         className="mt-auto flex h-[var(--tap-min)] items-center justify-center text-secondary"
         style={{ font: 'var(--type-meta)' }}
       >
-        아직 계정이 없어요
+        이미 계정이 있어요
       </Link>
     </main>
   );

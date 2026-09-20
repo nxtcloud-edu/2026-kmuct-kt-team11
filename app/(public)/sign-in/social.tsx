@@ -10,8 +10,9 @@
  * the PKCE work.
  *
  * No brand colour or logo. `.agents/visual-language.md` allows no accent and
- * reserves the only saturated value for `danger`, so this is the same pill as
- * every other control, told apart by its label.
+ * reserves the only saturated values for the semantic ones, so this takes the
+ * `secondary` Button treatment — a tinted fill, told apart from the primary
+ * action by its surface step and its label, never by a hue.
  */
 import Link from 'next/link';
 import { socialSignInConfigured } from '@/lib/supabase';
@@ -22,19 +23,22 @@ export function SocialSignIn({ next }: { next?: string | null }) {
   const qs = next ? `?next=${encodeURIComponent(next)}` : '';
 
   return (
-    <div className="mt-6">
-      <div className="flex items-center gap-3" aria-hidden>
+    <div className="mt-[var(--space-15)]">
+      <div className="flex items-center gap-[var(--space-9)]" aria-hidden>
         <span className="h-px flex-1 bg-hairline" />
-        <span className="text-xs text-ink-muted">또는</span>
+        <span className="text-secondary" style={{ font: 'var(--type-caption)' }}>
+          또는
+        </span>
         <span className="h-px flex-1 bg-hairline" />
       </div>
 
       <Link
         href={`/api/auth/oauth/google${qs}`}
         prefetch={false}
-        className="mt-4 inline-flex w-full items-center justify-center rounded-pill bg-surface-1
-                   px-5 py-2.5 text-base shadow-control transition-colors duration-200
-                   ease-standard hover:bg-fill"
+        className="mt-[var(--space-11)] flex h-[var(--field-height)] w-full items-center
+                   justify-center rounded-[var(--radius-lg)] bg-surface-2 text-ink
+                   transition-opacity duration-200 active:opacity-[var(--press-opacity)]"
+        style={{ font: 'var(--type-button)' }}
       >
         Google로 계속하기
       </Link>

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { Canvas } from './canvas';
 
 export const metadata: Metadata = {
   // Template so every child route reads "저장한 곳 · Gaja" without repeating it.
@@ -8,8 +9,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // Matches --canvas so the iOS status bar does not band against the page.
-  themeColor: '#F7F8F9',
+  // Matches --backdrop so the iOS status bar does not band against the page.
+  themeColor: '#E9E9EB',
   width: 'device-width',
   initialScale: 1,
 };
@@ -19,13 +20,17 @@ export const viewport: Viewport = {
  * is Korean. It is also what makes the system stack resolve Apple SD Gothic Neo
  * rather than falling back to a Latin face with substituted Hangul.
  *
- * No font is loaded. `.agents/visual-language.md` forbids a webfont, so the
- * create-next-app Geist imports were removed rather than restyled.
+ * Fonts are declared in globals.css rather than via next/font: the source
+ * system names its families after the React Native tokens ('Inter-Medium',
+ * 'Poppins-Bold'), and next/font would rename them, breaking every `font:`
+ * shorthand that refers to them by name.
  */
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        <Canvas>{children}</Canvas>
+      </body>
     </html>
   );
 }

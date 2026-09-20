@@ -5,6 +5,10 @@ import { ProblemError } from './problem';
 
 export const SESSION_COOKIE = '__Host-gaja_session';
 
+/** Mirrors the CHECK constraint in 20260920000003. Both sides must move together. */
+export type Gender = 'female' | 'male' | 'undisclosed';
+export type AgeBand = '10s' | '20s' | '30s' | '40s' | '50plus';
+
 export type SessionUser = {
   id: string;
   display_name: string;
@@ -16,6 +20,14 @@ export type SessionUser = {
   home_area: string | null;
   profile_visible_in_groups: boolean;
   plan: string;
+  // Every onboarding answer is optional, so all four are nullable. `mbti` stays a
+  // plain string rather than a 16-member union: the CHECK constraint is the
+  // authority on the shape, and a union here would only be a second place to
+  // maintain the same 16 values.
+  gender: Gender | null;
+  age_band: AgeBand | null;
+  mbti: string | null;
+  onboarded_at: Date | null;
 };
 
 /** The signed-in user, or null. Never throws — callers decide whether absence is an error. */
@@ -26,7 +38,8 @@ export async function currentUser(): Promise<SessionUser | null> {
 
   return queryOne<SessionUser>(
     `select u.id, u.display_name, u.avatar_url, u.email, u.email_verified_at,
-            u.igsid, u.locale, u.home_area, u.profile_visible_in_groups, u.plan
+            u.igsid, u.locale, u.home_area, u.profile_visible_in_groups, u.plan,
+            u.gender, u.age_band, u.mbti, u.onboarded_at
        from sessions s
        join users u on u.id = s.user_id
       where s.token_hash = $1
@@ -88,6 +101,13 @@ export function toMe(u: SessionUser) {
     home_area: u.home_area,
     profile_visible_in_groups: u.profile_visible_in_groups,
     plan: u.plan,
+    gender: u.gender,
+    age_band: u.age_band,
+    mbti: u.mbti,
+    // The wire field is a boolean and deliberately not the timestamp: the client
+    // only ever asks "do I still owe this person the onboarding flow?", and
+    // handing it a date invites a comparison that has no right answer.
+    onboarded: u.onboarded_at !== null,
     recovery_channels: channels,
   };
 }

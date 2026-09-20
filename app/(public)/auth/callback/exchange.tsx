@@ -54,7 +54,7 @@ export function CallbackExchange() {
   if (state.k === 'exchanging') {
     return (
       <Card className="p-6">
-        <p role="status" aria-live="polite" className="text-sm text-ink-muted">
+        <p role="status" aria-live="polite" className="text-secondary">
           로그인 중이에요…
         </p>
       </Card>

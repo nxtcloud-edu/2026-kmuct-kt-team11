@@ -16,8 +16,14 @@ import { Card } from './surface';
 /* ── Notice ───────────────────────────────────────────────────────────────── */
 
 /**
- * `danger` puts the red on a 2px left border, never on the text — `#ED2B32` is
- * 4.21:1 and is not shippable as body copy. See the record's contrast table.
+ * `danger` is a whole tinted surface — `--status-cancel-bg` — rather than a rule
+ * down the left edge. `--status-cancel-fg` on that background measures 2.97:1
+ * and fails even the 3:1 UI threshold, so the words stay in `--ink` (14.85:1)
+ * and the pastel does the signalling. See the record's contrast table.
+ *
+ * The background is set as an inline style, not a utility: `Card` already emits
+ * a `background-color` utility and two utilities of the same family have no
+ * guaranteed order in the generated stylesheet.
  */
 export function Notice({
   title,
@@ -32,11 +38,14 @@ export function Notice({
 }) {
   return (
     <Card
-      className={`p-6 ${tone === 'danger' ? 'border-l-2 border-danger' : ''}`}
+      className="p-6"
+      style={tone === 'danger' ? { background: 'var(--status-cancel-bg)' } : undefined}
       role={tone === 'danger' ? 'alert' : undefined}
     >
-      <p className="text-lg font-medium">{title}</p>
-      <p className="mt-1.5 text-sm text-ink-muted">{body}</p>
+      <p style={{ font: 'var(--type-section)', letterSpacing: 'var(--section-ls)' }}>{title}</p>
+      <p className="mt-1.5 text-secondary" style={{ font: 'var(--type-body)' }}>
+        {body}
+      </p>
       {action ? <div className="mt-4">{action}</div> : null}
     </Card>
   );
@@ -47,19 +56,19 @@ export function Notice({
 /**
  * Shapes match the real card so nothing jumps when data lands — a skeleton that
  * is the wrong height is worse than a spinner. Rows are staggered in width only;
- * the record's motion budget is opacity and border, so this does not shimmer.
+ * the record's motion budget has no transforms, so this does not shimmer.
  */
 export function ListSkeleton({ rows = 4 }: { rows?: number }) {
   return (
     <div className="flex flex-col gap-3" aria-busy="true" aria-label="불러오는 중">
       {Array.from({ length: rows }, (_, i) => (
         <Card key={i} className="flex items-center gap-3 p-4">
-          <div className="h-3.5 w-11 rounded bg-fill" />
+          <div className="h-3.5 w-11 rounded bg-surface-2" />
           <div className="flex-1">
-            <div className="h-4 rounded bg-fill" style={{ width: `${45 + i * 12}%` }} />
-            <div className="mt-2 h-3 w-[30%] rounded bg-fill" />
+            <div className="h-4 rounded bg-surface-2" style={{ width: `${45 + i * 12}%` }} />
+            <div className="mt-2 h-3 w-[30%] rounded bg-surface-2" />
           </div>
-          <div className="h-14 w-14 shrink-0 rounded-xl bg-fill shadow-control" />
+          <div className="h-14 w-14 shrink-0 rounded-[var(--radius-md)] bg-surface-2" />
         </Card>
       ))}
     </div>
@@ -83,8 +92,8 @@ export function EmptyState({
 /**
  * `detail` comes from the RFC 9457 problem document, which is written to be
  * shown to a user — see the catalogue in `lib/problem.ts`. `request_id` is
- * rendered in --ink-muted, not --ink-subtle: it is text a user may have to read
- * aloud to support, so it cannot sit at 2.30:1.
+ * rendered in `--text-secondary`, never `--text-tertiary`: it is text a user may
+ * have to read aloud to support, so it cannot sit at 2.81:1.
  */
 export function ErrorState({
   detail,
@@ -104,7 +113,7 @@ export function ErrorState({
         <div className="flex flex-col gap-3">
           {action}
           {requestId ? (
-            <p className="text-xs text-ink-muted">
+            <p className="text-secondary" style={{ font: 'var(--type-caption)' }}>
               문의 시 이 번호를 알려주세요: <span className="tabular-nums">{requestId}</span>
             </p>
           ) : null}

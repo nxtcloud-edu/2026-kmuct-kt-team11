@@ -8,7 +8,7 @@ import { ListSkeleton } from '@/components/states';
 export default function AppLoading() {
   return (
     <Content>
-      <div className="mb-6 h-8 w-40 rounded bg-fill" />
+      <div className="mb-6 h-8 w-40 rounded bg-surface-2" />
       <ListSkeleton />
     </Content>
   );

@@ -41,7 +41,7 @@ export default async function GroupsPage() {
             <Card as="li" key={g.id} className="flex items-center gap-3 p-4">
               <div className="min-w-0 flex-1">
                 <p className="font-medium [overflow-wrap:anywhere]">{g.name}</p>
-                <p className="mt-0.5 text-sm text-ink-muted">멤버 {g.member_count}명</p>
+                <p className="mt-0.5 text-secondary">멤버 {g.member_count}명</p>
               </div>
               {g.role === 'owner' ? <Chip>관리자</Chip> : null}
             </Card>

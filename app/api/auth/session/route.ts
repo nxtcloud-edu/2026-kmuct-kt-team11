@@ -43,7 +43,8 @@ export const POST = withRoute(async (req: Request) => {
         `update users set email = $1, email_verified_at = now(), last_active_at = now()
           where id = $2
       returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
-                home_area, profile_visible_in_groups, plan`,
+                home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
+                onboarded_at`,
         [link.email, signedIn.id],
       );
       return { user: updated.rows[0], outcome: 'linked' as const };
@@ -53,7 +54,8 @@ export const POST = withRoute(async (req: Request) => {
       const found = await c.query<SessionUser>(
         `update users set last_active_at = now() where id = $1
       returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
-                home_area, profile_visible_in_groups, plan`,
+                home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
+                onboarded_at`,
         [link.user_id],
       );
       return { user: found.rows[0], outcome: 'signed_in' as const };
@@ -65,7 +67,8 @@ export const POST = withRoute(async (req: Request) => {
       `insert into users (display_name, email, email_verified_at)
        values ($1, $2, now())
    returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
-             home_area, profile_visible_in_groups, plan`,
+             home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
+             onboarded_at`,
       [link.email.split('@')[0], link.email],
     );
     return { user: created.rows[0], outcome: 'signed_in' as const };

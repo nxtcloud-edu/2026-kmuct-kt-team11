@@ -3,8 +3,13 @@ import { ProblemError } from './problem';
 import type { SessionUser } from './session';
 import type { SocialProvider } from './supabase';
 
+// Must stay in step with the SELECT in lib/session.ts. `c.query<SessionUser>` is
+// an unchecked assertion, so a column missing here produces a SessionUser with
+// undefined keys that tsc will not flag — and the onboarding gate reads
+// onboarded_at off exactly this object.
 const USER_COLUMNS = `id, display_name, avatar_url, email, email_verified_at, igsid, locale,
-                      home_area, profile_visible_in_groups, plan`;
+                      home_area, profile_visible_in_groups, plan,
+                      gender, age_band, mbti, onboarded_at`;
 
 export type VerifiedIdentity = {
   provider: SocialProvider;

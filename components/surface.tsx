@@ -1,15 +1,21 @@
 /**
  * Surface primitives.
  *
- * These exist so `.agents/visual-language.md`'s depth budget is enforced by the
- * type system rather than by everyone remembering it. The record allows exactly
- * two recipes:
+ * These exist so `.agents/visual-language.md`'s depth budget is enforced in one
+ * place rather than by everyone remembering it. The record allows exactly three
+ * shadows in the whole app — `--shadow-float`, `--shadow-card`, `--shadow-canvas`
+ * — and none of them belongs on a card.
  *
- *   Card    — the 4-layer shadow. Only content the user came for may float.
- *   Control — `inset 0 0 0 0.5px` hairline. Buttons, chips and inputs never lift.
+ *   Card    — a tinted surface. No border, no shadow, no transition.
+ *   Control — flat fill. Buttons and chips never lift and never hover.
  *
- * If a third kind of depth is ever needed, that is a `visual-designer` decision.
- * Do not add a `shadow` prop here to shortcut it.
+ * Grouping comes from the surface step (`--canvas` → `--surface-1` →
+ * `--surface-2`), not from elevation. If a fourth kind of depth is ever needed,
+ * that is a `visual-designer` decision — do not add a `shadow` prop here to
+ * shortcut it.
+ *
+ * There is no hover vocabulary in this system: it is a touch app, and press
+ * feedback is `--press-opacity`.
  */
 import type { ComponentProps, HTMLAttributes, ReactNode } from 'react';
 
@@ -23,39 +29,45 @@ export function Card({
   className = '',
   ...rest
 }: HTMLAttributes<HTMLElement> & { as?: 'div' | 'article' | 'section' | 'li' }) {
-  return (
-    <As
-      className={`bg-surface-1 rounded-card shadow-card transition-shadow duration-300 ease-standard ${className}`}
-      {...rest}
-    />
-  );
+  return <As className={`bg-surface-1 rounded-[var(--radius-2xl)] ${className}`} {...rest} />;
 }
 
 /* ── Chip ─────────────────────────────────────────────────────────────────── */
 
 /**
- * `danger` renders the red as a 2px rule, never as the words. `#ED2B32` is
- * 4.21:1 and fails AA as body text — the measurement is in the record's
- * contrast table and is not to be recomputed.
+ * `danger` renders the red as a 2px rule, never as the words. `--status-cancel-fg`
+ * on `--status-cancel-bg` measures 2.97:1 — it fails even the 3:1 UI threshold —
+ * so `--ink` on the pastel (14.85:1) carries the label instead. The source system
+ * sets that pair as text; that is a defect in it and is not adopted. The
+ * measurement is in the record's contrast table and is not to be recomputed.
  */
 export function Chip({
   tone = 'neutral',
   children,
   className = '',
+  style,
   ...rest
 }: ComponentProps<'span'> & { tone?: 'neutral' | 'danger' }) {
   const base =
-    'inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-xs whitespace-nowrap';
+    'inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1 whitespace-nowrap';
+  // letter-spacing cannot live in the `font` shorthand, so --tag-ls is paired
+  // with --type-tag here, at the call site, exactly as globals.css asks.
+  const type = { font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)', ...style };
+
   return tone === 'danger' ? (
-    <span className={`${base} bg-danger-fill text-ink pl-1.5 ${className}`} {...rest}>
-      <span aria-hidden className="mr-1 h-3.5 w-0.5 shrink-0 rounded-sm bg-danger" />
+    <span
+      className={`${base} bg-[var(--status-cancel-bg)] text-ink pl-1.5 ${className}`}
+      style={type}
+      {...rest}
+    >
+      <span
+        aria-hidden
+        className="mr-1 h-3.5 w-0.5 shrink-0 rounded-[var(--radius-photo)] bg-error"
+      />
       {children}
     </span>
   ) : (
-    <span
-      className={`${base} bg-fill text-ink-muted shadow-control ${className}`}
-      {...rest}
-    >
+    <span className={`${base} bg-surface-2 text-secondary ${className}`} style={type} {...rest}>
       {children}
     </span>
   );
@@ -64,41 +76,63 @@ export function Chip({
 /* ── Button ───────────────────────────────────────────────────────────────── */
 
 /**
- * One pill, hierarchy by fill inversion only. There is no accent colour to make
- * a primary button out of, so "primary" is ink-filled and "secondary" is not.
- * Motion budget is opacity and border — no transform, no scale on press.
+ * Hierarchy by fill only. There is no accent colour to make a primary button out
+ * of, so "primary" is ink-filled, "secondary" is a tinted fill and "quiet" is
+ * nothing at all. Motion budget is opacity — no transform, no scale, no hover.
  */
 export function Button({
   variant = 'secondary',
   className = '',
+  style,
   ...rest
 }: ComponentProps<'button'> & { variant?: 'primary' | 'secondary' | 'quiet' }) {
   const base =
-    'inline-flex items-center justify-center gap-2 rounded-pill px-5 py-2.5 text-base ' +
-    'transition-[opacity,background-color,box-shadow] duration-200 ease-standard ' +
-    'disabled:opacity-40 disabled:cursor-not-allowed';
+    'inline-flex items-center justify-center gap-2 rounded-[var(--radius-lg)] px-5 ' +
+    'h-[var(--field-height)] transition-opacity duration-200 ' +
+    'active:opacity-[var(--press-opacity)] disabled:opacity-40 disabled:cursor-not-allowed';
   const tone = {
-    primary:   'bg-ink text-surface-1 hover:opacity-90',
-    secondary: 'bg-surface-1 text-ink shadow-control hover:bg-fill',
-    quiet:     'bg-transparent text-ink-muted hover:text-ink',
+    primary: 'bg-ink text-on-ink',
+    secondary: 'bg-surface-2 text-ink',
+    quiet: 'bg-transparent text-secondary',
   }[variant];
-  return <button className={`${base} ${tone} ${className}`} {...rest} />;
+  return (
+    <button
+      className={`${base} ${tone} ${className}`}
+      style={{ font: 'var(--type-button)', ...style }}
+      {...rest}
+    />
+  );
 }
 
 /* ── Layout ───────────────────────────────────────────────────────────────── */
 
-/** 600px reading column, per the record's grid. Page padding is 96/16/48. */
+/**
+ * The page column. No max-width of its own — the phone canvas constrains width
+ * now, so a second constraint here would only fight it. Bottom padding reserves
+ * the fixed tab bar's height plus its offset, so the last row of a list is never
+ * parked underneath it.
+ */
 export function Content({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`mx-auto w-full max-w-[600px] px-4 pt-6 pb-24 ${className}`}>{children}</div>
+    <div
+      className={`w-full px-[var(--gutter)] pt-6 pb-[calc(var(--tab-bar-height)+var(--tab-bar-bottom)+24px)] ${className}`}
+    >
+      {children}
+    </div>
   );
 }
 
 export function PageHeader({ title, meta }: { title: string; meta?: ReactNode }) {
   return (
     <header className="mb-6">
-      <h2>{title}</h2>
-      {meta ? <p className="mt-1 text-sm text-ink-muted">{meta}</p> : null}
+      <h2 style={{ font: 'var(--type-tab-header)', letterSpacing: 'var(--tab-header-ls)' }}>
+        {title}
+      </h2>
+      {meta ? (
+        <p className="mt-1 text-secondary" style={{ font: 'var(--type-meta)' }}>
+          {meta}
+        </p>
+      ) : null}
     </header>
   );
 }

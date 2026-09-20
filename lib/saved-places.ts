@@ -102,3 +102,20 @@ export async function listSavedPlacesForUser(userId: string, limit = 30) {
   );
   return rows.map(serialiseSavedPlace);
 }
+
+/**
+ * Places in an area, excluding ones this user already saved — a "near you"
+ * section that shows what you have already got is not a recommendation.
+ */
+export async function listPlacesNearby(area: string, userId: string, limit = 10) {
+  return query<{ id: string; name: string; category: string; area: string }>(
+    `select p.id, p.name, p.category, p.area
+       from places p
+      where p.area = $1
+        and not exists (select 1 from saved_places sp
+                         where sp.place_id = p.id and sp.user_id = $2)
+      order by p.created_at desc
+      limit $3`,
+    [area, userId, limit],
+  );
+}

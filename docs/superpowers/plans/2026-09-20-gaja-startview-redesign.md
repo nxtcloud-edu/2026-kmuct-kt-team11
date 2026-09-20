@@ -90,7 +90,7 @@
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: CSS custom properties consumed by every later task — `--canvas`, `--surface-1`, `--surface-2`, `--divider`, `--hairline`, `--backdrop`, `--ink`, `--text-secondary`, `--text-tertiary`, `--text-on-ink`, `--like-red`, `--success`, `--error`, `--point-gold`, the `--status-*` and `--tag-*` pairs, `--type-display|screen-title|tab-header|section|body|card-title|button|meta|caption`, `--space-1..19`, `--gutter`, `--canvas-width`, `--section-gap`, `--field-height`, `--tap-min`, `--radius-photo|xs|sm|md|lg|xl|2xl|3xl|4xl|canvas|pill|circle`, `--shadow-float|card|canvas`, `--ease-nav|fade`, `--dur-push|modal|fade|tab`. Tailwind utilities `bg-canvas`, `bg-surface-1`, `bg-surface-2`, `text-ink`, `text-secondary`, `text-tertiary`, `rounded-lg|xl|2xl|3xl|4xl|pill`, `shadow-float`, `shadow-card`.
+- Produces: CSS custom properties consumed by every later task — `--canvas`, `--surface-1`, `--surface-2`, `--divider`, `--hairline`, `--backdrop`, `--ink`, `--text-secondary`, `--text-tertiary`, `--text-on-ink`, `--like-red`, `--success`, `--error`, `--point-gold`, the `--status-*` and `--tag-*` pairs, `--type-display|screen-title|tab-header|section|body|card-title|button|meta|caption|tag|tab`, `--space-1..19`, `--gutter`, `--canvas-width`, `--section-gap`, `--field-height`, `--tap-min`, `--radius-photo|xs|sm|md|lg|xl|2xl|3xl|4xl|canvas|pill|circle`, `--shadow-float|card|canvas`, `--ease-nav|fade`, `--dur-push|modal|fade|tab`. Tailwind utilities `bg-canvas`, `bg-surface-1`, `bg-surface-2`, `text-ink`, `text-secondary`, `text-tertiary`, `rounded-lg|xl|2xl|3xl|4xl|pill`, `shadow-float`, `shadow-card`.
 
 - [ ] **Step 1: Copy the fonts**
 
@@ -199,6 +199,12 @@ Replace the file entirely. Copy token *values* verbatim from `$DS/tokens/*.css`;
   --type-button:700 var(--button-size)/var(--button-lh) var(--font-body-bold),var(--font-fallback-kr);
   --type-meta:400 var(--meta-size)/var(--meta-lh) var(--font-body),var(--font-fallback-kr);
   --type-caption:400 var(--caption-size)/var(--caption-lh) var(--font-body),var(--font-fallback-kr);
+  /* The source defines the primitives for tags and tab labels but never composes
+     them. Gaja needs both, so they are composed here to the same pattern.
+     letter-spacing cannot live in the `font` shorthand — pair these with
+     `letter-spacing: var(--tag-ls)` / `var(--tab-ls)` at the call site. */
+  --type-tag:600 var(--tag-size)/var(--tag-lh) var(--font-body-semibold),var(--font-fallback-kr);
+  --type-tab:500 var(--tab-size)/var(--tab-lh) var(--font-body-medium),var(--font-fallback-kr);
 
   /* spacing — odd values are deliberate, do not snap to a 4/8 grid */
   --space-1:2px;  --space-2:3px;  --space-3:4px;  --space-4:5px;  --space-5:6px;
@@ -1043,7 +1049,7 @@ Each step renders: a progress row (`4단계 중 N`, `var(--type-caption)`, **`--
 
 - **Step 1 닉네임:** `어떻게 부를까요?` · text input, `--field-height`, `bg-surface-1`, `rounded-[var(--radius-2xl)]`. `다음` disabled while empty. **Not skippable.**
 - **Step 2 성별 · 연령대:** `조금만 알려주세요` · two segmented rows of pill buttons. 성별: `여성 · 남성 · 선택 안 함`. 연령대: `10대 · 20대 · 30대 · 40대 · 50대+`. Selected pill is `bg-ink text-on-ink`; unselected `bg-surface-2 text-secondary`.
-- **Step 3 MBTI:** `MBTI가 어떻게 되세요?` · `grid-cols-4 gap-[var(--space-8)]` over `MBTI_TYPES`, each cell an image at `rounded-[var(--radius-md)] bg-surface-2` with the 4-letter label beneath in `var(--type-tag)`. A final full-width `잘 모르겠어요` cell writes `null`.
+- **Step 3 MBTI:** `MBTI가 어떻게 되세요?` · `grid-cols-4 gap-[var(--space-8)]` over `MBTI_TYPES`, each cell an image at `rounded-[var(--radius-md)] bg-surface-2` with the 4-letter label beneath in `var(--type-tag)` plus `letter-spacing: var(--tag-ls)`. A final full-width `잘 모르겠어요` cell writes `null`.
 - **Step 4 활동 지역:** `주로 어디서 노세요?` · pill grid of Seoul areas — `성수 · 연남 · 한남 · 강남 · 을지로 · 홍대 · 압구정 · 여의도 · 잠실 · 기타`. Writes `home_area`.
 
 On finish, one request:
@@ -1115,7 +1121,7 @@ itself."
 
 Client component (needs `usePathname`). A fixed pill, `height: var(--tab-bar-height)`, `bottom: var(--tab-bar-bottom)`, `border-radius: var(--radius-3xl)`, `box-shadow: var(--shadow-float)`, `background: var(--canvas)`, centred and constrained to the canvas width minus two gutters.
 
-Four tabs: `홈 → /home`, `저장한 곳 → /saved-places`, `그룹 → /groups`, `계정 → /account`. Labels at `var(--type-tab)` — `--tab-size 10px`, Inter-Medium, `--tab-ls 0.1px`. Active is `--ink`; inactive is `--icon-inactive`.
+Four tabs: `홈 → /home`, `저장한 곳 → /saved-places`, `그룹 → /groups`, `계정 → /account`. Labels at `var(--type-tab)` plus `letter-spacing: var(--tab-ls)` — the shorthand cannot carry tracking. Active is `--ink`; inactive is `--icon-inactive`.
 
 ```tsx
 /**

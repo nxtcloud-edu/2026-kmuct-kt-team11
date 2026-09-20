@@ -27,7 +27,7 @@ export default async function AccountPage() {
         <Field label="이메일" value={me.email ?? '연결되지 않음'} />
 
         <div>
-          <p className="text-sm text-ink-muted">로그인 수단</p>
+          <p className="text-secondary">로그인 수단</p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {me.instagram_linked ? <Chip>Instagram</Chip> : null}
             {me.email_verified ? <Chip>이메일</Chip> : null}
@@ -46,7 +46,7 @@ export default async function AccountPage() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-sm text-ink-muted">{label}</p>
+      <p className="text-secondary">{label}</p>
       <p className="mt-0.5 [overflow-wrap:anywhere]">{value}</p>
     </div>
   );

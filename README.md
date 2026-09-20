@@ -61,21 +61,28 @@ creates 13 saved places across three Seoul areas.
 ## Layout
 
 ```
-app/(public)/     signed-out: sign-in, magic-link callback
-app/(app)/        signed-in: auth-gated in layout.tsx, wrapped in the app shell
-app/api/          13 route handlers — the contract in docs/gaja/openapi.yaml
-app/prototype/    throwaway direction prototype; delete once its finding lands
-components/       surface primitives and the UI-state set
-lib/              db, session, problems, pagination, idempotency
+app/(public)/     signed-out: landing, sign-in, sign-up, magic-link callback
+app/(onboarding)/ signed-in but not yet onboarded; no tab bar
+app/(app)/        signed-in and onboarded: gated in layout.tsx, wrapped in the tab bar
+app/api/          route handlers — the contract in docs/gaja/openapi.yaml
+app/canvas.tsx    the 430px phone canvas every route renders inside
+components/       surface primitives, UI states, the tab bar
+lib/              db, session, problems, pagination, idempotency, mbti
 lib/api/          browser-side client — Server Components use lib/db directly
 proxy.ts          stamps x-gaja-pathname; NOT the auth boundary
 ```
 
 Conventions worth knowing before changing anything:
 
-- **`.agents/visual-language.md` is the record.** There is no brand colour, weight
-  never exceeds 500, and `#ED2B32` may not carry body text. `app/globals.css` is its
+- **`.agents/visual-language.md` is the record.** `app/globals.css` is its
   transcription — change the record first, then the CSS.
+- **Every screen renders inside a 430px phone canvas**, centred on grey above 480px
+  and full-bleed below it. Screens are designed at phone width, always.
+- **There is no accent colour.** A saturated value that is not semantic is a bug, and
+  no status or tag foreground may carry body text — set the label in ink over the
+  pastel. See the measured contrast table in the record.
+- **Spacing is not on a 4/8 grid** and line heights are absolute px. Both are
+  deliberate; snapping them is a regression.
 - **Auth is gated in `app/(app)/layout.tsx`, not in `proxy.ts`.** The session is an
   opaque token checked against Postgres, and Proxy must not do database work.
 - **Errors are RFC 9457 problem documents.** Branch on `type`, never on `detail`.

@@ -62,7 +62,7 @@ function SavedPlaceRow({ saved }: { saved: SavedPlace }) {
         </p>
 
         {saved.hook ? (
-          <p className="mt-0.5 line-clamp-2 text-sm text-ink-muted">{saved.hook}</p>
+          <p className="mt-0.5 line-clamp-2 text-secondary">{saved.hook}</p>
         ) : null}
 
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -73,7 +73,7 @@ function SavedPlaceRow({ saved }: { saved: SavedPlace }) {
 
       <time
         dateTime={saved.saved_at}
-        className="shrink-0 text-xs text-ink-muted tabular-nums"
+        className="shrink-0 text-secondary tabular-nums"
       >
         {new Date(saved.saved_at).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' })}
       </time>

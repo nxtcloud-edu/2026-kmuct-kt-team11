@@ -147,6 +147,18 @@ r=$(req -X DELETE "$BASE/api/me/email")
 ck "removing the only recovery channel is 409" 409 "$(code "$r")"
 ck "  with the documented problem type" "https://gaja.app/errors/recovery-channel-required" "$(body "$r" | jget "['type']")"
 
+echo "── onboarding profile ─────────────────────────────────────────────────"
+r=$(req -X PATCH "$BASE/api/me" -H 'content-type: application/json' \
+      -d '{"gender":"female","age_band":"20s","mbti":"INFJ","home_area":"성수"}')
+ck "PATCH /me accepts the onboarding fields" 200 "$(code "$r")" \
+   "$([ "$(body "$r" | jget "['mbti']")" = "INFJ" ] && echo ok || echo 'mbti not returned')"
+
+r=$(req -X PATCH "$BASE/api/me" -H 'content-type: application/json' -d '{"mbti":"XXXX"}')
+ck "an invalid MBTI is 422" 422 "$(code "$r")"
+
+r=$(req -X PATCH "$BASE/api/me" -H 'content-type: application/json' -d '{"age_band":"99s"}')
+ck "an invalid age_band is 422" 422 "$(code "$r")"
+
 echo "── sign out ────────────────────────────────────────────────────────────"
 r=$(req -X DELETE "$BASE/api/auth/session"); ck "DELETE /auth/session is 204" 204 "$(code "$r")"
 r=$(req "$BASE/api/me"); ck "session is revoked server-side" 401 "$(code "$r")"
