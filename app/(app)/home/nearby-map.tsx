@@ -2,6 +2,15 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Card } from '@/components/surface';
+import {
+  loadNaverMaps,
+  quietBasemap,
+  type NaverEventListener,
+  type NaverInfoWindow,
+  type NaverMap,
+  type NaverMapsNamespace,
+  type NaverMarker,
+} from '@/lib/naver-maps';
 
 /**
  * The "near you" map.
@@ -51,144 +60,6 @@ export const CATEGORY_KO: Record<string, string> = {
  * is a walkable neighbourhood — the scale at which "near you" means something.
  */
 const MIN_SPAN_DEG = 0.012;
-
-/* -------------------------------------------------------------------------- */
-/* Types                                                                       */
-/* -------------------------------------------------------------------------- */
-
-/**
- * Naver ships no type definitions and there is no community @types package, so
- * this is a hand-written declaration of the surface this file actually touches —
- * nothing wider. `any` would type-check the same call sites while silently
- * accepting a misspelled method, which is the failure this exists to catch.
- * Every member below was verified against the served v3.10.2 bundle.
- */
-interface NaverLatLng {
-  lat(): number;
-  lng(): number;
-}
-
-interface NaverLatLngBounds {
-  getCenter(): NaverLatLng;
-}
-
-/** Margins are in pixels and inset the pins from the viewport edge. */
-type NaverFitBoundsOptions = { top: number; right: number; bottom: number; left: number };
-
-interface NaverMap {
-  fitBounds(bounds: NaverLatLngBounds, options?: NaverFitBoundsOptions): void;
-  /** Releases the tile layer, the DOM it built and its own listeners. */
-  destroy(): void;
-}
-
-interface NaverMarker {
-  setMap(map: NaverMap | null): void;
-}
-
-interface NaverInfoWindow {
-  /** Takes an HTML string, not a node — see `setInfoWindowContent`. */
-  setContent(content: string): void;
-  open(map: NaverMap, anchor: NaverMarker): void;
-  close(): void;
-}
-
-/**
- * The handle `Event.addListener` hands back; the bundle returns
- * `{ target, eventName, listenerId, listener }`. Only ever passed straight back
- * to `removeListener`, so one field is enough to keep it from being `object`.
- */
-interface NaverEventListener {
-  readonly eventName: string;
-}
-
-type NaverMapOptions = {
-  center: NaverLatLng;
-  zoom: number;
-  zoomControl: boolean;
-  scaleControl: boolean;
-  scrollWheel: boolean;
-};
-
-type NaverMarkerOptions = {
-  position: NaverLatLng;
-  map: NaverMap;
-  title: string;
-};
-
-type NaverInfoWindowOptions = {
-  content: string;
-  borderWidth: number;
-  backgroundColor: string;
-  disableAnchor: boolean;
-};
-
-interface NaverMapsNamespace {
-  Map: new (element: HTMLElement, options: NaverMapOptions) => NaverMap;
-  LatLng: new (lat: number, lng: number) => NaverLatLng;
-  LatLngBounds: new (sw: NaverLatLng, ne: NaverLatLng) => NaverLatLngBounds;
-  Marker: new (options: NaverMarkerOptions) => NaverMarker;
-  InfoWindow: new (options: NaverInfoWindowOptions) => NaverInfoWindow;
-  Event: {
-    addListener(target: object, type: string, handler: () => void): NaverEventListener;
-    removeListener(listener: NaverEventListener): void;
-  };
-}
-
-declare global {
-  interface Window {
-    naver?: { maps: NaverMapsNamespace };
-    /**
-     * Naver's own hook. The script is served to anyone — the 200 only means the
-     * file exists — and the key is checked at runtime against the domain
-     * whitelist in the NCP console. When that check fails this is called and the
-     * tiles never arrive, so it is the only signal that separates "wrong domain"
-     * from "still loading".
-     */
-    navermap_authFailure?: () => void;
-  }
-}
-
-/* -------------------------------------------------------------------------- */
-/* Script loading                                                              */
-/* -------------------------------------------------------------------------- */
-
-const SCRIPT_ID = 'naver-maps-v3';
-
-/**
- * Module-level, so the tag is appended once no matter how many times the effect
- * runs. React strict mode double-invokes effects in development and a second
- * `<script>` for the same bundle would re-enter Naver's initialiser; every caller
- * awaits this one promise instead.
- */
-let scriptPromise: Promise<NaverMapsNamespace> | null = null;
-
-function loadNaverMaps(clientId: string): Promise<NaverMapsNamespace> {
-  if (scriptPromise) return scriptPromise;
-
-  scriptPromise = new Promise((resolve, reject) => {
-    const ready = window.naver?.maps;
-    if (ready) {
-      resolve(ready);
-      return;
-    }
-
-    const el = document.createElement('script');
-    // The current NCP form. The older `openapi.map.naver.com` + `ncpClientId`
-    // host still answers, but new keys are issued against this one.
-    el.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(clientId)}`;
-    el.id = SCRIPT_ID;
-    el.async = true;
-    el.onload = () => {
-      const maps = window.naver?.maps;
-      if (maps) resolve(maps);
-      else reject(new Error('naver maps script loaded without a maps namespace'));
-    };
-    el.onerror = () => reject(new Error('naver maps script failed to load'));
-    document.head.appendChild(el);
-  });
-
-  return scriptPromise;
-}
 
 /* -------------------------------------------------------------------------- */
 /* Component                                                                   */
@@ -272,6 +143,13 @@ function MapView({ places, clientId }: { places: NearbyPlace[]; clientId: string
           center: bounds.getCenter(),
           // Replaced immediately by `fitBounds`; the constructor requires one.
           zoom: 14,
+          // Naver's own POI pins, transit icons and IC/JC markers are drawn in
+          // the same blue teardrop as a default marker, so at the zoom a
+          // multi-district fitBounds picks, our places were the least legible
+          // thing on the map. This swaps the basemap for the quieter vector
+          // style; see lib/naver-maps.ts for why the registry and the id have
+          // to be passed together.
+          ...quietBasemap(ns),
           // The map is a picture of where these places are, not a map app: pan
           // and pinch stay, the furniture goes. The logo and the data-copyright
           // box are Naver's attribution and stay at their defaults — they are a
