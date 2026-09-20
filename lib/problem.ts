@@ -27,6 +27,7 @@ export type ProblemCode =
   | 'login-rate-limited'
   | 'oauth-failed'
   | 'oauth-email-required'
+  | 'ingest-breaker-tripped'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -51,6 +52,11 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'login-rate-limited':       { status: 429, title: 'Too many attempts',          detail: '로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.' },
   'oauth-failed':             { status: 400, title: 'Sign-in did not complete',   detail: 'That sign-in did not complete. Try again.' },
   'oauth-email-required':     { status: 409, title: 'Email permission required',  detail: 'Gaja needs your email address so you can always get back in. Allow email access and try again.' },
+  // Not a transient 503: nothing retries out of this state. The Instagram
+  // poller stopped because Instagram challenged it, and it stays stopped until a
+  // person clears the challenge and resets ingest_state by hand. Retry-After
+  // would be a lie, so the route does not send one.
+  'ingest-breaker-tripped':   { status: 503, title: 'Ingestion halted',            detail: 'Reel ingestion has stopped and will not resume until it is reset by hand.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 

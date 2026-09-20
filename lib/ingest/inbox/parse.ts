@@ -1,0 +1,212 @@
+/**
+ * Reading `GET /api/v1/direct_v2/inbox/` — the pure half of the Instagram poller.
+ *
+ * Kept apart from instagram-poll.ts, which owns the network, the cookies and the
+ * circuit breaker, so that the part with the interesting bugs can be tested
+ * against a committed fixture without a socket. Nothing in this file may import
+ * anything with a side effect: it takes parsed JSON and returns `InboxClip[]`.
+ * `parse.test.ts` compiles this module ALONE (scripts/test-ingest.sh), so a
+ * runtime import added here breaks the test run, not just its purity.
+ *
+ * Every shape below is defended rather than asserted. The payload is not a
+ * contract — it is whatever a logged-in browser happened to be served on
+ * 2026-09-20, from an interface with no versioning, no deprecation notice and no
+ * obligation to us. `item.clip.clip` becoming `item.clip` overnight is a
+ * Tuesday. The rule this file follows: an unrecognised item is skipped, never
+ * guessed at and never thrown over, because one malformed item in a thread must
+ * not cost us the other nine.
+ */
+
+import type { InboxClip } from './index';
+
+/** Records are read field by field; nothing here trusts a shape it has not checked. */
+type Json = Record<string, unknown>;
+
+function obj(v: unknown): Json | null {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Json) : null;
+}
+
+function arr(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function str(v: unknown): string | null {
+  if (typeof v === 'string') return v.length > 0 ? v : null;
+  // Instagram sends media pks and user ids as JSON numbers in some payloads and
+  // as strings in others, sometimes both in the same response (`pk` vs `pk_id`).
+  // A pk is past 2^53 and a Number round-trip corrupts it, so the string form is
+  // preferred everywhere it exists — but a number that IS exact still beats
+  // dropping the item.
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return null;
+}
+
+/**
+ * Instagram timestamps the direct inbox in MICROseconds since the epoch, which
+ * is the single easiest thing to get wrong here: read as milliseconds,
+ * 1,758,000,000,000,000 is the year 57,700, every clip sorts after every cursor,
+ * and the poller re-ingests the entire inbox on every pass while reporting
+ * success. The magnitude test is deliberate — it costs nothing and it means a
+ * payload that quietly switches unit does not silently break the cursor.
+ */
+function toDate(v: unknown): Date | null {
+  const raw = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  const ms = raw > 1e14 ? raw / 1000 : raw > 1e11 ? raw : raw * 1000;
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * The media object inside a clip item.
+ *
+ * Observed as `item.clip.clip` — a `clip` envelope wrapping the media, which
+ * also carries share metadata. Older captures and some item variants put the
+ * media directly at `item.clip`. Both are accepted by looking for the field that
+ * identifies a medium (`code` or `pk`) rather than by trusting either path.
+ */
+function mediaOf(item: Json): Json | null {
+  const envelope = obj(item.clip);
+  if (!envelope) return null;
+  const inner = obj(envelope.clip);
+  if (inner && (str(inner.code) ?? str(inner.pk))) return inner;
+  if (str(envelope.code) ?? str(envelope.pk)) return envelope;
+  return null;
+}
+
+/**
+ * The caption, in full.
+ *
+ * `caption` is an object with a `.text`, and it is null on reels posted without
+ * one — null is a real, common answer, not a parse failure. The string fallback
+ * exists because `caption` has been seen flattened; it is one line and it costs
+ * nothing to keep the ten venues when it happens.
+ *
+ * Nothing here truncates, trims to a preview, or strips emoji. The emoji ARE the
+ * grammar the extractor parses (📍 name, 🕰️ hours, 📓 menu), and a caption
+ * clipped to a preview length is the failure this pipeline cannot detect
+ * downstream — a 200-character prefix of a listicle parses cleanly as two
+ * venues and reports high confidence.
+ */
+function captionOf(media: Json): string | null {
+  const caption = media.caption;
+  if (typeof caption === 'string') return caption.length > 0 ? caption : null;
+  const c = obj(caption);
+  if (c && typeof c.text === 'string' && c.text.length > 0) return c.text;
+  return null;
+}
+
+export type ParseOptions = {
+  /**
+   * `IG_DS_USER_ID` — the polling account's own id. Items it authored are its
+   * own outgoing messages; ingesting them would file the account's own shares
+   * under whichever Gaja user happens to have that igsid.
+   */
+  selfUserId: string;
+  /** High-water mark. Clips at or before it have already been through a pass. */
+  since: Date | null;
+};
+
+/**
+ * Every clip share in an inbox payload, oldest first.
+ *
+ * Oldest first matters: the caller advances its cursor to the last clip it
+ * processed, so a descending order would move the high-water mark past clips it
+ * had not reached yet if the pass stopped early.
+ */
+export function parseInboxClips(payload: unknown, opts: ParseOptions): InboxClip[] {
+  const root = obj(payload);
+  const inbox = root ? obj(root.inbox) : null;
+  if (!inbox) return [];
+
+  const out: InboxClip[] = [];
+
+  for (const rawThread of arr(inbox.threads)) {
+    const thread = obj(rawThread);
+    if (!thread) continue;
+
+    for (const rawItem of arr(thread.items)) {
+      const item = obj(rawItem);
+      if (!item) continue;
+
+      // The one filter that is not defensive: a thread carries text, reactions,
+      // link shares and post shares alongside clips, and only `clip` is a reel.
+      // `product_type: 'clips'` on the media says the same thing, but it lives
+      // one level down and is absent in some captures, so the item-level type is
+      // the gate.
+      if (item.item_type !== 'clip') continue;
+
+      const sender = str(item.user_id);
+      if (!sender) continue;
+      if (sender === opts.selfUserId) continue;
+
+      const sharedAt = toDate(item.timestamp);
+      if (!sharedAt) continue;
+      if (opts.since && sharedAt.getTime() <= opts.since.getTime()) continue;
+
+      const media = mediaOf(item);
+      if (!media) continue;
+
+      // Shortcode first: it is what a permalink is built from, what a human can
+      // paste into a browser to check a row, and what a support conversation
+      // will quote. The pk is the fallback for a payload that omits it.
+      const code = str(media.code);
+      const reelVideoId = code ?? str(media.pk);
+      if (!reelVideoId) continue;
+
+      out.push({
+        igsid: sender,
+        reelVideoId,
+        sourceUrl: code ? `https://www.instagram.com/reel/${code}/` : null,
+        caption: captionOf(media),
+        sharedAt,
+      });
+    }
+  }
+
+  out.sort((a, b) => a.sharedAt.getTime() - b.sharedAt.getTime());
+  return out;
+}
+
+/**
+ * Does this response mean "stop"?
+ *
+ * Separated from the fetch so it can be tested against captured bodies, and so
+ * the list of things that trip the breaker is readable in one place rather than
+ * scattered through a request function.
+ *
+ * Returns a short reason to persist, or null when the response is ordinary.
+ * Deliberately NOT a boolean: the reason is the only thing a human resetting the
+ * breaker has to go on, and "429" and "checkpoint_required" call for very
+ * different next moves.
+ */
+export function detectBlock(status: number, payload: unknown): string | null {
+  // 401: the session cookie is dead or revoked. Retrying re-submits a known-bad
+  // credential, which is the signature of a compromised-account probe.
+  if (status === 401) return 'http-401-session-invalid';
+  // 429: Instagram has already decided we are too fast. Backing off and
+  // continuing is still polling; the account stays flagged either way.
+  if (status === 429) return 'http-429-rate-limited';
+  // 403 is not automatically a block — it is also what a stale CSRF token
+  // returns — so it is judged on the body below rather than on the status.
+
+  const body = obj(payload);
+  if (!body) return null;
+
+  // Instagram's own vocabulary for "a human must go and clear this". Any of
+  // these means the account is in an interstitial; the next request is a request
+  // made against an account already under review.
+  const message = typeof body.message === 'string' ? body.message : '';
+  if (message === 'challenge_required') return 'challenge_required';
+  if (message === 'checkpoint_required') return 'checkpoint_required';
+  if (message === 'login_required') return 'login_required';
+  if (obj(body.challenge)) return 'challenge_required';
+  if (typeof body.checkpoint_url === 'string' && body.checkpoint_url.length > 0) {
+    return 'checkpoint_required';
+  }
+  if (body.require_login === true) return 'login_required';
+  // `status: 'fail'` alone is not a block — a malformed cursor returns it too —
+  // so it is reported only when paired with a spelled-out reason above.
+
+  return null;
+}
