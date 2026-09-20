@@ -17,7 +17,7 @@
  * not cost us the other nine.
  */
 
-import type { InboxClip } from './index';
+import type { InboxClip, InboxThumb } from './index';
 
 /** Records are read field by field; nothing here trusts a shape it has not checked. */
 type Json = Record<string, unknown>;
@@ -96,6 +96,103 @@ function captionOf(media: Json): string | null {
   return null;
 }
 
+/**
+ * The width the deck actually needs, in device pixels.
+ *
+ * The phone canvas is 430px and the thumbnail occupies 62% of a card inset by
+ * 13 units of padding — call it ~260 CSS px, which `deck.tsx` already declares
+ * as its `sizes`. At the 2x DPR of every phone this ships to that is ~520 real
+ * pixels; 860 is that rounded up hard, because the same object is also what a
+ * future full-bleed or 3x surface will reach for and re-downloading a reel's
+ * cover a year later is not possible — the URL will be long dead.
+ *
+ * Deliberately a width and not an index. `candidates[3]` is a guess about the
+ * order of an array nobody promised us; a width is a statement about the screen.
+ */
+export const THUMB_TARGET_WIDTH = 860;
+
+/**
+ * Pick the frame to copy out of the ladder the payload offers.
+ *
+ * THE RULE, in one line: the smallest PORTRAIT candidate at least
+ * `THUMB_TARGET_WIDTH` wide, else the largest portrait there is.
+ *
+ * Portrait first, and not as a tie-break. A reel is 9:16 and the payload carries
+ * square variants (1080x1080 down to 150x150) alongside the portrait ladder
+ * (1215x2160 … 240x427). A square is not a smaller version of the frame — it is a
+ * centre crop of it, and the venue, the sign and the plate are what a centre crop
+ * of a vertical composition throws away. A visibly cropped cover is worse than a
+ * slightly soft one.
+ *
+ * Smallest-that-suffices, not largest-available: the bytes are ours to store and
+ * serve forever, 1215x2160 is roughly four times the area we will ever paint, and
+ * the extra pixels cost storage on every reel of every user to be discarded by
+ * the browser on every render.
+ *
+ * Falling back to the largest portrait when none reaches the target is the honest
+ * end of the ladder — a soft cover beats no cover, and there is no second chance
+ * to fetch a bigger one.
+ *
+ * Pure, total, and exported for its own test: no fetch, no clock, no randomness.
+ * Feed it nonsense and it returns null.
+ */
+export function pickThumbCandidate(candidates: readonly InboxThumb[]): InboxThumb | null {
+  const usable = candidates.filter(
+    (c) =>
+      typeof c.url === 'string' &&
+      c.url.length > 0 &&
+      Number.isFinite(c.width) &&
+      Number.isFinite(c.height) &&
+      c.width > 0 &&
+      c.height > 0,
+  );
+  if (usable.length === 0) return null;
+
+  // Strictly taller than wide. A 1080x1080 square is not portrait, and treating
+  // it as one is exactly the mistake this function exists to prevent.
+  const portrait = usable.filter((c) => c.height > c.width);
+  // If Instagram ever stops shipping a portrait ladder the same rule is applied
+  // to whatever IS there, rather than returning null — a square cover is a
+  // degraded cover, but no cover at all is a hole in the deck.
+  const pool = portrait.length > 0 ? portrait : usable;
+
+  // Sorted rather than reduced so ties are resolved by a stated rule instead of
+  // by the array's order: two candidates of the same width are separated by
+  // height, and two of the same size by url, so the choice is reproducible
+  // across two passes over the same payload.
+  const bySize = [...pool].sort(
+    (a, b) => a.width - b.width || a.height - b.height || a.url.localeCompare(b.url),
+  );
+
+  return bySize.find((c) => c.width >= THUMB_TARGET_WIDTH) ?? bySize[bySize.length - 1];
+}
+
+/**
+ * `media.image_versions2.candidates`, read defensively and handed to the picker.
+ *
+ * Every field is checked rather than asserted, on the same rule as the rest of
+ * this file: `image_versions2` is an undocumented shape on an unversioned
+ * endpoint, and an item whose thumbnail block has gone strange must lose its
+ * thumbnail, not its caption.
+ */
+function thumbOf(media: Json): InboxThumb | null {
+  const block = obj(media.image_versions2);
+  if (!block) return null;
+
+  const candidates: InboxThumb[] = [];
+  for (const raw of arr(block.candidates)) {
+    const c = obj(raw);
+    if (!c) continue;
+    const url = typeof c.url === 'string' && c.url.length > 0 ? c.url : null;
+    const width = typeof c.width === 'number' ? c.width : Number(str(c.width) ?? NaN);
+    const height = typeof c.height === 'number' ? c.height : Number(str(c.height) ?? NaN);
+    if (!url || !Number.isFinite(width) || !Number.isFinite(height)) continue;
+    candidates.push({ url, width, height });
+  }
+
+  return pickThumbCandidate(candidates);
+}
+
 export type ParseOptions = {
   /**
    * `IG_DS_USER_ID` — the polling account's own id. Items it authored are its
@@ -159,6 +256,7 @@ export function parseInboxClips(payload: unknown, opts: ParseOptions): InboxClip
         reelVideoId,
         sourceUrl: code ? `https://www.instagram.com/reel/${code}/` : null,
         caption: captionOf(media),
+        thumb: thumbOf(media),
         sharedAt,
       });
     }

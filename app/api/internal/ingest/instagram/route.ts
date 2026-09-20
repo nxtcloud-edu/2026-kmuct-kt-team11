@@ -15,6 +15,7 @@ import {
 import { resolveSenderToUser } from '@/lib/ingest/route-sender';
 import { extractPlacesFromCaption } from '@/lib/extract/caption';
 import { saveReel } from '@/lib/ingest/save-reel';
+import { captureReelThumbnail } from '@/lib/ingest/thumbnail';
 
 /**
  * One pass of the reel ingest pipeline.
@@ -53,6 +54,14 @@ type Summary = {
   saved: number;
   already_existed: number;
   failed: number;
+  /** Cover frames copied into our own storage this pass. */
+  thumbs_captured: number;
+  /**
+   * Clips that saved fine and whose cover did not. Counted, never fatal — see
+   * lib/ingest/thumbnail.ts. A number that climbs while `saved` climbs with it
+   * means the deck is falling back to stock images, not that ingest is broken.
+   */
+  thumbs_failed: number;
   cursor_at: string | null;
   /** Present only when the pass did not run. */
   skipped?: 'min-interval';
@@ -88,6 +97,8 @@ async function run(req: Request) {
     saved: 0,
     already_existed: 0,
     failed: 0,
+    thumbs_captured: 0,
+    thumbs_failed: 0,
     cursor_at: state.cursorAt?.toISOString() ?? null,
   };
 
@@ -140,6 +151,22 @@ async function run(req: Request) {
       // found nothing in it".
       const extraction = clip.caption ? await extractPlacesFromCaption(clip.caption) : null;
 
+      // NO `placeIds` YET, so every row here is still born `place_id = null,
+      // status = 'pending'`. The resolver exists and is proven
+      // (lib/research/resolve-place.ts, ./scripts/verify-geocode.sh); what is
+      // missing is an answer to the one thing it requires and a caption cannot
+      // supply — `places.category` is NOT NULL with a CHECK, and a 📍 line says
+      // a name and never "restaurant". Passing 'cafe' for every reel would write
+      // a guess into a column that reads as a fact, which is a product decision
+      // and not one to make silently here. Resolve that, then add:
+      //
+      //   placeIds: placeIdsByOrdinal(
+      //     await resolvePlaceCandidates(extraction?.places ?? [], { category }),
+      //   )
+      //
+      // Note the ordering: resolution is ~10 sequential HTTPS calls and must stay
+      // outside saveReel's transaction, which is why it is a separate statement
+      // and not a flag on the call below.
       const result = await saveReel({
         userId: routed.userId,
         reelVideoId: clip.reelVideoId,
@@ -150,6 +177,37 @@ async function run(req: Request) {
 
       if (result.alreadyExisted) summary.already_existed++;
       else summary.saved++;
+
+      // THE COVER FRAME, AFTER THE COMMIT AND OUTSIDE THE TRY THAT MATTERS.
+      //
+      // `saveReel` does not take a thumbnail and must not: it holds one pooled
+      // client for the whole transaction (a pool of ONE per instance on Vercel),
+      // and this is a download plus an upload. Same seam as `placeIds` — the
+      // networked, failable step happens outside, and the write path stays
+      // un-killable by a remote host.
+      //
+      // Skipped when the reel was already ours. That is the idempotency: a
+      // redelivered DM re-downloads nothing, and `alreadyExisted` is the signal
+      // that was already being returned for exactly this kind of decision.
+      if (clip.thumb && !result.alreadyExisted) {
+        // Its own try, and a deliberately narrow one. A thumbnail failure must
+        // never reach the outer catch, because the outer catch stops the cursor
+        // and re-reads this clip forever — an expired candidate URL would pin
+        // the whole pipeline on one reel while the reel itself sat saved and
+        // complete in the database.
+        try {
+          const shot = await captureReelThumbnail(result.reelId, clip.thumb);
+          if (shot.ok) summary.thumbs_captured++;
+          else {
+            summary.thumbs_failed++;
+            // The reason is a short tag written by us, never a URL or a body.
+            console.warn(`[ingest] clip ${clip.reelVideoId} thumbnail skipped: ${shot.reason}`);
+          }
+        } catch (e) {
+          summary.thumbs_failed++;
+          console.warn(`[ingest] clip ${clip.reelVideoId} thumbnail threw:`, e);
+        }
+      }
 
       processedThrough = clip.sharedAt;
     } catch (e) {

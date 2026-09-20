@@ -374,10 +374,13 @@ Part of the contract, not an implementation detail. `429` carries `Retry-After`.
 
 Both were reversible, so defaults were taken rather than blocking:
 
-- **#2 `area` — client-supplied and required in slice 1.** There is no geocoder until slice 2
-  adds the Kakao adapter, and someone hand-entering a café in 성수 knows it is 성수. Slice 2 makes
-  the field optional and server-resolves it; **loosening a required field is non-breaking**, so
-  this direction is safe and the reverse would not have been.
+- **#2 `area` — client-supplied and required on `POST /api/places`.** Someone hand-entering a
+  café in 성수 knows it is 성수, and that route's callers have no address to derive it from.
+  A geocoder now exists (`lib/research/geocode.ts`, Naver rather than the Kakao adapter the
+  original note anticipated) and the reel path server-resolves `area` from it — but it does so
+  by calling `findOrCreatePlace` directly, not through this route, so the request body is
+  unchanged. Making the field optional here remains available and **loosening a required field
+  is non-breaking**, so this direction is still safe and the reverse would not have been.
 - **#3 magic-link lifetime — 15 minutes, single-use.** Conventional for a sign-in link.
   `[unverified]` against real delivery latency; if DM or email delivery proves slower than that,
   raise it rather than making links reusable.

@@ -66,6 +66,7 @@ async function main() {
   // Re-runnable: the fixture account is deleted and recreated, and everything
   // downstream of it — reels, saved places — goes with it by ON DELETE CASCADE.
   await query(`delete from users where igsid = any($1::text[])`, [[IGSID, UNKNOWN_IGSID]]);
+  await query(`delete from places where area = 'verify'`);
   const user = await queryOne<{ id: string }>(
     `insert into users (display_name, igsid) values ('verify-reel-ingest', $1) returning id`,
     [IGSID],
@@ -102,9 +103,9 @@ async function main() {
   eq("status is 'extracted'", reel!.status, 'extracted');
   eq('the full extraction is stored', reel!.extracted?.places.length, 3);
 
-  // place_id null is the stated state, not an oversight: nothing resolves a
-  // caption name to a canonical place yet. If that changes, this assertion is
-  // the one that should be rewritten first.
+  // place_id null is what a reel saved WITHOUT `placeIds` must still produce.
+  // Section 7 covers the resolved path; this one exists to keep the unresolved
+  // one intact, because it is the fallback every geocode failure lands in.
   const unresolved = await queryOne<{ n: string }>(
     `select count(*) as n from saved_places
       where reel_id = $1 and place_id is null and status = 'pending' and confirmed = false`,
@@ -189,8 +190,112 @@ async function main() {
   );
   eq('saved_places cascaded away', Number(orphans!.n), 0);
 
+  console.log('\n7 — a reel whose candidates resolved to places');
+  // The path lib/research/resolve-place.ts feeds. `placeIds` is an ordinal ->
+  // places.id map; an ordinal that is absent from it is a candidate the geocoder
+  // could not place, and must still be written exactly as section 1 asserts.
+  const onion = await makePlace('어니언 성수-verify', 37.5445, 127.0557);
+  const daelim = await makePlace('대림창고-verify', 37.5417, 127.0555);
+
+  const mixed = await saveReel({
+    userId, reelVideoId: `${REEL}-resolved`, sourceUrl: null,
+    rawCaption: '1.어니언 2.자그마치 3.대림창고',
+    extraction: extraction(
+      [
+        { ordinal: 1, name: '어니언 성수' },
+        { ordinal: 2, name: '자그마치' },
+        { ordinal: 3, name: '대림창고' },
+      ],
+      'high',
+    ),
+    // Ordinal 2 deliberately omitted: one venue of three failed to geocode.
+    placeIds: new Map([[1, onion], [3, daelim]]),
+  });
+  eq('all three venues saved, resolved or not', mixed.savedPlaceIds.length, 3);
+  eq('ordinal 1 carries its place', await placeIdAt(mixed.reelId, 1), onion);
+  eq('ordinal 1 is resolved', await statusAt(mixed.reelId, 1), 'resolved');
+  eq('ordinal 3 carries its place', await placeIdAt(mixed.reelId, 3), daelim);
+  // The regression guard: one bad address must cost one venue, never the reel.
+  eq('the ungeocodable venue is still saved', await placeIdAt(mixed.reelId, 2), null);
+  eq('and is still pending', await statusAt(mixed.reelId, 2), 'pending');
+
+  console.log('\n8 — a venue the user already holds');
+  // `saved_places_no_duplicate_idx` is unique on (user_id, place_id, group_id)
+  // for any row that is not rejected. Writing a resolved place_id the user
+  // already has would raise a unique violation, and because saveReel is ONE
+  // transaction that violation would take all three venues down — re-creating
+  // the all-or-nothing loss the geocoding seam exists to avoid. The reel must
+  // save whole, with the duplicate venue written unresolved instead.
+  const repeat = await saveReel({
+    userId, reelVideoId: `${REEL}-repeat`, sourceUrl: null,
+    rawCaption: '1.어니언 2.자그마치',
+    extraction: extraction(
+      [{ ordinal: 1, name: '어니언 성수' }, { ordinal: 2, name: '자그마치' }],
+      'high',
+    ),
+    placeIds: new Map([[1, onion]]),
+  });
+  eq('the reel saved whole', repeat.savedPlaceIds.length, 2);
+  eq('the already-held venue is written unresolved', await placeIdAt(repeat.reelId, 1), null);
+  eq('and pending, for review rather than lost', await statusAt(repeat.reelId, 1), 'pending');
+
+  console.log('\n9 — one reel naming the same venue twice');
+  // Two entries 30 m apart with similar names collapse onto one places row in
+  // the dedupe, so one reel can hand the same place_id to two ordinals. Same
+  // index, same consequence; the first mention keeps it.
+  //
+  // A FRESH place, not one section 7 already saved — reuse one and this passes
+  // for section 8's reason (the user already holds it) rather than this one's,
+  // which is what the first draft of this assertion did.
+  const seongsu = await makePlace('성수연방-verify', 37.5430, 127.0570);
+  const twice = await saveReel({
+    userId, reelVideoId: `${REEL}-twice`, sourceUrl: null,
+    rawCaption: '1.대림창고 2.대림창고 별관',
+    extraction: extraction(
+      [{ ordinal: 1, name: '대림창고' }, { ordinal: 2, name: '대림창고 별관' }],
+      'high',
+    ),
+    placeIds: new Map([[1, seongsu], [2, seongsu]]),
+  });
+  eq('both entries saved', twice.savedPlaceIds.length, 2);
+  eq('the first mention keeps the place', await placeIdAt(twice.reelId, 1), seongsu);
+  eq('the second is written unresolved', await placeIdAt(twice.reelId, 2), null);
+
   await query(`delete from users where id = $1`, [userId]);
+  // The fixture places are not owned by the user and do not cascade with them,
+  // so they are deleted by the marker area they were created with. Leaving them
+  // would make the next run's dedupe match against the last run's rows.
+  await query(`delete from places where area = 'verify'`);
   console.log(failures === 0 ? '\nall assertions passed\n' : `\n${failures} assertion(s) failed\n`);
+}
+
+async function makePlace(name: string, lat: number, lng: number): Promise<string> {
+  // Written directly rather than through lib/places.ts: this file proves the
+  // reel WRITE path, and a `places` row here is a fixture, not the thing under
+  // test. The -verify suffix in the name makes a stray row identifiable.
+  const row = await queryOne<{ id: string }>(
+    `insert into places (name, category, lat, lng, area)
+     values ($1, 'cafe', $2, $3, 'verify')
+  returning id`,
+    [name, lat, lng],
+  );
+  return row!.id;
+}
+
+async function placeIdAt(reelId: string, ordinal: number): Promise<string | null> {
+  const r = await queryOne<{ place_id: string | null }>(
+    `select place_id from saved_places where reel_id = $1 and ordinal = $2`,
+    [reelId, ordinal],
+  );
+  return r!.place_id;
+}
+
+async function statusAt(reelId: string, ordinal: number): Promise<string> {
+  const r = await queryOne<{ status: string }>(
+    `select status from saved_places where reel_id = $1 and ordinal = $2`,
+    [reelId, ordinal],
+  );
+  return r!.status;
 }
 
 async function statusOf(reelId: string) {

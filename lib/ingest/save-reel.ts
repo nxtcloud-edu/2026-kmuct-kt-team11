@@ -8,6 +8,21 @@ export type SaveReelInput = {
   rawCaption: string | null;
   /** Null when extraction never produced a result — a crash, a timeout, a refusal. */
   extraction: CaptionExtraction | null;
+
+  /**
+   * `ordinal -> places.id`, for the candidates that resolved. Build it with
+   * `placeIdsByOrdinal` (lib/research/resolve-place.ts).
+   *
+   * OPTIONAL, AND THE ABSENT CASE IS THE ORIGINAL BEHAVIOUR. Omit it — or leave
+   * an ordinal out of it — and that row is written `place_id = null,
+   * status = 'pending'` exactly as before. This is the whole seam: resolution
+   * happens before the call, over the network, where a 401 or a wrong address
+   * can fail without a transaction open. Nothing in here can be brought down by
+   * a geocoder, because nothing in here talks to one. Losing a ten-venue reel
+   * because one venue's address was mistyped would be a worse bug than the
+   * unresolved row it replaced.
+   */
+  placeIds?: ReadonlyMap<number, string>;
 };
 
 export type SaveReelResult = {
@@ -49,15 +64,17 @@ function reelStatus(extraction: CaptionExtraction | null): ReelStatus {
  * insert takes the `do nothing` branch, no saved_places are written, and the
  * caller is told `alreadyExisted: true` so it can ack and move on.
  *
- * What is NOT done here: resolving a `PlaceCandidate` to a row in `places`. A
- * candidate is a name and maybe an address scraped off a caption; turning that
- * into a canonical place means geocoding, the ~50m + fuzzy-name dedupe that
- * `POST /api/places` performs, and a decision about what to do when it matches
- * nothing. None of that exists for caption text yet, so every row written here
- * has `place_id` null and `status = 'pending'` — which is the state
- * 20260918000001 defined for exactly this case ("the row is created at ack time
- * with status='pending', before extraction"). The candidate's name, address and
- * hours live in `reels.extracted`, findable from the row by `(reel_id, ordinal)`.
+ * Resolving a `PlaceCandidate` to a row in `places` is NOT done here — it is done
+ * BEFORE the call, by lib/research/resolve-place.ts, and arrives as `placeIds`.
+ * Geocoding is a network round trip per venue and `tx()` holds one pooled client
+ * for its whole duration (a pool of ONE per instance on Vercel — see lib/db.ts),
+ * so doing it in here would hold a connection open across ten HTTPS calls.
+ *
+ * A row whose ordinal is not in `placeIds` is written `place_id = null,
+ * status = 'pending'` — the state 20260918000001 defined for exactly this case
+ * ("the row is created at ack time with status='pending', before extraction").
+ * The candidate's name, address and hours live in `reels.extracted` either way,
+ * findable from the row by `(reel_id, ordinal)`.
  */
 export async function saveReel(input: SaveReelInput): Promise<SaveReelResult> {
   const places = input.extraction?.places ?? [];
@@ -92,12 +109,55 @@ export async function saveReel(input: SaveReelInput): Promise<SaveReelResult> {
     // `saved_places_reel_ordinal_idx` and takes the whole transaction down. That is
     // deliberate — two venues claiming position 3 is an extractor bug, and writing
     // one of them while dropping the other is how it would stay invisible.
+    //
+    // The `dropped` CTE below exists for a DIFFERENT index, and dropping it would
+    // reintroduce the bug this seam was built to avoid. `saved_places_no_duplicate_idx`
+    // is unique on (user_id, place_id, coalesce(group_id, zero)) where the row is not
+    // rejected and place_id is not null — so the moment a resolved place_id is
+    // written, a venue the user ALREADY holds (saved by hand in March, shared in a
+    // reel in April) raises a unique violation, and because this is one transaction
+    // that violation takes all ten venues with it. Two entries in one reel resolving
+    // to the same place — two branches within 50 m and similar names — do the same.
+    // Both are handled by writing that row unresolved rather than by failing:
+    // `place_id` null, status 'pending', ordinal intact, candidate still in
+    // `reels.extracted`. The user already has the place; this reel does not get to
+    // claim it twice, and it does not get to destroy the other nine either.
+    //
+    // Under READ COMMITTED the `exists` check can still be raced by a DIFFERENT reel
+    // for the same user resolving the same venue concurrently. That loser rolls back
+    // whole and the poller redelivers — which is the behaviour the idempotent insert
+    // above is for, not a case worth a lock over.
     const rows = await c.query<{ id: string; ordinal: number }>(
-      `insert into saved_places (user_id, reel_id, ordinal, status, confirmed)
-            select $1, $2, o, 'pending', false
-              from unnest($3::smallint[]) as o
+      `with candidate as (
+         select o, p, row_number() over (partition by p order by o) as nth
+           from unnest($3::smallint[], $4::uuid[]) as u(o, p)
+       ),
+       dropped as (
+         select c.o,
+                case when c.nth > 1 then null
+                     when exists (
+                       select 1 from saved_places sp
+                        where sp.user_id = $1 and sp.place_id = c.p
+                          and sp.group_id is null and sp.status <> 'rejected'
+                     ) then null
+                     else c.p
+                end as p
+           from candidate c
+       )
+       insert into saved_places (user_id, reel_id, ordinal, place_id, status, confirmed)
+            select $1, $2, d.o, d.p,
+                   case when d.p is null then 'pending' else 'resolved' end, false
+              from dropped d
          returning id, ordinal`,
-      [input.userId, reelId, places.map((p) => p.ordinal)],
+      [
+        input.userId,
+        reelId,
+        places.map((p) => p.ordinal),
+        // Parallel arrays, so the null for an unresolved ordinal has to be
+        // written out — `unnest` of two arrays of different lengths pads the
+        // short one with nulls, which would silently mis-pair them.
+        places.map((p) => input.placeIds?.get(p.ordinal) ?? null),
+      ],
     );
 
     return {

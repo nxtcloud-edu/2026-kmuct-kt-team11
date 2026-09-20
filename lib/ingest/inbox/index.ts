@@ -23,7 +23,28 @@
  */
 
 /**
- * One reel share, normalised. Five fields, all of which the Messaging API can
+ * One candidate cover frame for a reel, already chosen.
+ *
+ * The payload offers fourteen of these per clip; `pickThumbCandidate`
+ * (lib/ingest/inbox/parse.ts) picks one and only the winner crosses this seam. A
+ * source that handed the whole ladder through would be pushing an
+ * Instagram-shaped decision onto the caller, and the Messaging API's ladder is
+ * not the same ladder.
+ *
+ * `url` IS EXPECTED TO DIE. It is a CDN link whose `oe=` parameter is an expiry
+ * — roughly four and a half days in the sample that was measured. Nothing may
+ * store it as the thumbnail; it is an instruction to go and fetch the bytes NOW,
+ * which lib/ingest/thumbnail.ts does, once, at ingest time.
+ */
+export type InboxThumb = {
+  url: string;
+  /** As the payload reports them. The stored object is measured again after download. */
+  width: number;
+  height: number;
+};
+
+/**
+ * One reel share, normalised. Six fields, all of which the Messaging API can
  * also produce.
  */
 export type InboxClip = {
@@ -65,6 +86,16 @@ export type InboxClip = {
    * right.
    */
   caption: string | null;
+
+  /**
+   * The cover frame to copy, or null when the payload offered none usable.
+   *
+   * NULL IS ORDINARY AND MUST NOT COST THE REEL. A clip with no thumbnail still
+   * carries the caption, and the caption is the product — dropping a ten-venue
+   * listicle because its cover image was missing would trade the thing we want
+   * for the picture of it. The deck falls back to lib/reel-thumb.ts.
+   */
+  thumb: InboxThumb | null;
 
   /** When the share arrived. The cursor is a high-water mark over this. */
   sharedAt: Date;

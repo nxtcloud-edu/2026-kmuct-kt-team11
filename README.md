@@ -55,6 +55,28 @@ npx next dev > /tmp/gaja-dev.log 2>&1 & bash scripts/smoke.sh
 It reads magic-link tokens out of that log, which is why `DEV_LOG` has to point at
 wherever the server is writing.
 
+Two more proofs, both runnable on their own:
+
+```bash
+./scripts/verify-geocode.sh        # live Naver Geocoding; asserts plausible Seoul coordinates
+./scripts/verify-reel-ingest.sh    # the reel write path, against local Postgres
+./scripts/verify-reel-thumbnail.sh # a cover frame downloaded, stored and served back
+```
+
+`verify-geocode.sh` makes real API calls and spends real quota. Its point is the axis
+swap: Naver returns `x` as longitude and `y` as latitude, and reading them the obvious
+way round puts every Seoul venue in the Yellow Sea at coordinates that pass every
+constraint in the schema. The Seoul bounding box in that script is the only thing that
+catches it.
+
+`verify-reel-thumbnail.sh` needs the local Storage API up — `[storage] enabled = true`
+in `supabase/config.toml` is read at start, so a stack that was running before that line
+existed answers 503 until `npx supabase stop && npx supabase start`. It downloads a real
+image, uploads it, reads it back byte-identical and fetches it anonymously at its public
+URL. Point it at a genuine, unexpired Instagram candidate with
+`REEL_THUMB_URL='https://…?oe=…' ./scripts/verify-reel-thumbnail.sh`; none is committed,
+because those URLs die in about four and a half days.
+
 To browse real data, `bash scripts/seed-prototype.sh` signs in a fixture user and
 creates 13 saved places across three Seoul areas.
 
@@ -89,10 +111,15 @@ Environment variables to set in the Vercel project, for Production and Preview b
 |---|---|
 | `DATABASE_URL` | Supabase **transaction pooler, port 6543** — not the direct connection on 5432. |
 | `NEXT_PUBLIC_APP_URL` | The deployment's own origin. Magic-link callbacks are built from it, so a wrong value sends people to localhost. |
-| `SUPABASE_URL` | Project URL. |
+| `SUPABASE_URL` | Project URL. Also read at **build** time by `next.config.ts` to allow the Storage host for `next/image` — set it before the build, or reel thumbnails 400 while everything else works. |
 | `SUPABASE_ANON_KEY` | Anon key. Public by design; row-level security is what protects the data. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only, bypasses RLS everywhere. Used for one thing: uploading reel cover frames to the `reel-thumbs` bucket. Unset is survivable — ingest still saves every reel and the deck falls back to stock stills. |
 | `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID` | Naver Maps JS key. Public by design; **must carry a domain whitelist** in the NCP console — see below. |
 | `NAVER_MAP_CLIENT_SECRET` | Server-only. Not used by the map; it authenticates the Geocoding/Directions APIs. Never prefix it `NEXT_PUBLIC_`. |
+
+Geocoding is **enabled and verified working** on the current NCP application — `./scripts/verify-geocode.sh`
+resolves the four addresses from a real reel caption to real Seoul coordinates. Earlier notes
+saying the project has no geocoder are out of date; `lib/research/geocode.ts` is it.
 
 Three of those are load-bearing enough to repeat:
 
@@ -110,7 +137,10 @@ Three of those are load-bearing enough to repeat:
 - **`NAVER_MAP_CLIENT_SECRET` is a different kind of variable.** The JS Maps API does not
   use it at all — it signs server-side Geocoding and Directions calls. It has no
   `NEXT_PUBLIC_` form and must never appear in a client component; grepping `app/` and
-  `components/` for it should return nothing.
+  `components/` for it should return nothing. The geocoder sends it together with the
+  public client id, so **both must come from the same NCP application and that application
+  must have the Geocoding product enabled** — one that does not will serve the map happily
+  and return 401 from `lib/research/geocode.ts`, which reads as a bad secret and is not.
 
 Gaja uses Naver rather than Google here because the places are all in Seoul: Google's
 Korean basemap ships no driving directions, thin POI coverage, and frequently no Korean
@@ -134,6 +164,9 @@ app/canvas.tsx    the 430px phone canvas every route renders inside
 components/       surface primitives, UI states, the tab bar
 lib/              db, session, problems, pagination, idempotency, mbti
 lib/api/          browser-side client — Server Components use lib/db directly
+lib/extract/      reel caption -> PlaceCandidate (the creator's claim, parsed)
+lib/research/     PlaceCandidate -> places row: geocode, then the shared dedupe
+lib/ingest/       DM poller, sender routing, the one-transaction reel write
 proxy.ts          stamps x-gaja-pathname; NOT the auth boundary
 ```
 
