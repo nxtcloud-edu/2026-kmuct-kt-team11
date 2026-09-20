@@ -24,8 +24,11 @@ export function SignOutButton() {
     router.refresh();
   }
 
+  // `quiet` — no fill. Signing out is reachable but is not the primary path
+  // through this screen, and there is no accent colour in this system to
+  // de-emphasise it with, so the fill is the whole hierarchy.
   return (
-    <Button onClick={signOut} disabled={busy}>
+    <Button variant="quiet" className="w-full" onClick={signOut} disabled={busy}>
       {busy ? '로그아웃 중…' : '로그아웃'}
     </Button>
   );
