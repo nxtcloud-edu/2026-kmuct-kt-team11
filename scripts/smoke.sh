@@ -45,7 +45,7 @@ ck "POST /auth/magic-link is 202" 202 "$(code "$r")"
 r=$(curl -s -w '\n%{http_code}' -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' -d "{\"email\":\"nobody-$N@example.com\",\"intent\":\"sign_in\"}")
 ck "unknown email also 202 (no enumeration oracle)" 202 "$(code "$r")"
 
-TOKEN=$(grep -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
+TOKEN=$(grep -a -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
 r=$(req -X POST "$BASE/api/auth/session" -H 'content-type: application/json' -d "{\"token\":\"$TOKEN\"}")
 ck "POST /auth/session signs in a brand-new account" 200 "$(code "$r")" \
    "$([ "$(body "$r" | jget "['outcome']")" = "signed_in" ] && echo ok || echo 'wrong outcome')"
@@ -130,7 +130,7 @@ ck "accept as an existing member is 409" 409 "$(code "$r")"
 echo "── object-level authorization (OWASP API1) ─────────────────────────────"
 OTHER=$(mktemp)
 curl -s -c "$OTHER" -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' -d "{\"email\":\"other-$RANDOM@example.com\",\"intent\":\"sign_in\"}" >/dev/null
-T2=$(grep -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
+T2=$(grep -a -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
 curl -s -b "$OTHER" -c "$OTHER" -X POST "$BASE/api/auth/session" -H 'content-type: application/json' -d "{\"token\":\"$T2\"}" >/dev/null
 
 r=$(curl -s -b "$OTHER" -w '\n%{http_code}' "$BASE/api/saved-places/$SPID")

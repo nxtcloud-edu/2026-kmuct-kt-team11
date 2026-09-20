@@ -12,7 +12,7 @@ EMAIL="${EMAIL:-proto@example.com}"
 rm -f "$JAR"
 curl -s -c "$JAR" -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' \
   -d "{\"email\":\"$EMAIL\",\"intent\":\"sign_in\"}" >/dev/null
-T=$(grep -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
+T=$(grep -a -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//')
 curl -s -b "$JAR" -c "$JAR" -X POST "$BASE/api/auth/session" -H 'content-type: application/json' \
   -d "{\"token\":\"$T\"}" >/dev/null
 echo "signed in as $EMAIL"
