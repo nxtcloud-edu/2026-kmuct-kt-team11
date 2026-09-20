@@ -244,8 +244,16 @@ export function AgentSheet({
         onKeyDown={(e) => {
           if (e.key === 'Escape') close();
         }}
-        className="relative mt-auto flex h-[88dvh] w-full max-w-[var(--canvas-width)] flex-col
-                   overflow-hidden rounded-t-[var(--radius-canvas)] bg-canvas shadow-float
+        // Full height, not a partial sheet. A conversation is the whole task
+        // while it is happening — a 12dvh strip of the screen behind it is not
+        // context you can act on, it is just a smaller conversation. On the
+        // desktop canvas the width stays clamped so it still reads as the phone
+        // it is designed for; only the height changes.
+        //
+        // dvh rather than vh because mobile browser chrome shrinks the viewport
+        // as it hides, and vh would leave the composer under the URL bar.
+        className="relative mt-auto flex h-[100dvh] w-full max-w-[var(--canvas-width)] flex-col
+                   overflow-hidden bg-canvas shadow-float
                    animate-[fade_var(--dur-modal)_var(--ease-fade)]"
       >
         <Header avatar={avatar} mbti={mbti} onClose={close} />

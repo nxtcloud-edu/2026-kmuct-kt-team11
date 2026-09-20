@@ -29,8 +29,15 @@ import type { AgentEvent, AgentMessage } from './types';
  * out of a 1.2 KB caption; this one has to decide which of four tools to call,
  * read ten thousand characters of blog prose, and order five stops against
  * opening hours. Lite is the wrong rung for the judgement half.
+ *
+ * `gemini-3.1-flash` was the original pin and IT DOES NOT EXIST — every turn
+ * 404'd and the sheet showed "대답하는 중에 문제가 생겼어요" with nothing in the
+ * server log to explain it, because the failure arrived as an in-band error
+ * event after the stream had opened. `3.1` ships lite, image and tts variants
+ * but no plain flash. Verify a pin against `ListModels` before trusting it; a
+ * name that reads plausibly is not a name that resolves.
  */
-const MODEL = 'gemini-3.1-flash';
+const MODEL = 'gemini-3.5-flash';
 
 /**
  * A turn gets six model calls. Five tools' worth of work plus the answer is the
@@ -71,9 +78,23 @@ export async function* runAgent(
     parts: [{ text: m.text }],
   }));
 
+  // DOHERTY: the first byte has to leave within ~400ms of the send, and the
+  // first model call takes seconds. Without this the sheet sat blank from the
+  // tap until the whole answer landed at once, which reads as broken rather
+  // than as working. It is closed by the `status … done` below, or by the first
+  // tool's own status replacing it.
+  yield { type: 'status', label: '생각하고 있어요' };
+
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
-      const response = await ai.models.generateContent({
+      // STREAMED, not awaited whole. `generateContent` returns the finished
+      // answer, so even after the thinking indicator the text still arrived as
+      // one block — a paragraph appearing at once reads as a canned response,
+      // where the same paragraph arriving progressively reads as an answer
+      // being worked out. The tool-calling contract is unchanged: chunks carry
+      // `functionCalls` exactly as the single response did, so the branch below
+      // just accumulates instead of reading one object.
+      const stream = await ai.models.generateContentStream({
         model: MODEL,
         contents,
         config: {
@@ -86,22 +107,54 @@ export async function* runAgent(
         },
       });
 
-      const calls = response.functionCalls ?? [];
+      const calls: NonNullable<Awaited<ReturnType<typeof ai.models.generateContent>>['functionCalls']> = [];
+      let parts: Content['parts'] = [];
+      let streamed = '';
+      let opened = false;
 
-      // No tool call means the model is answering. Emit whatever it said and
-      // stop — including when that text is empty, which is what a safety filter
+      for await (const chunk of stream) {
+        for (const c of chunk.functionCalls ?? []) calls.push(c);
+        const chunkParts = chunk.candidates?.[0]?.content?.parts;
+        if (chunkParts?.length) parts = [...(parts ?? []), ...chunkParts];
+
+        const delta = chunk.text;
+        if (delta) {
+          // The thinking indicator is retired the moment real text exists, not
+          // when the turn ends — otherwise it sits under the answer it was
+          // standing in for.
+          if (!opened) {
+            yield { type: 'status', label: '생각하고 있어요', done: true };
+            opened = true;
+          }
+          streamed += delta;
+          yield { type: 'text', delta };
+        }
+      }
+
+      // No tool call means the model is answering. It has already been streamed
+      // above; all that is left is the empty case, which is what a safety filter
       // looks like from here.
       if (calls.length === 0) {
-        const text = response.text?.trim();
-        if (text) yield { type: 'text', delta: text };
-        else yield { type: 'error', detail: '답을 만들지 못했어요. 다시 물어봐 주세요.' };
+        if (!streamed.trim()) {
+          if (!opened) yield { type: 'status', label: '생각하고 있어요', done: true };
+          yield { type: 'error', detail: '답을 만들지 못했어요. 다시 물어봐 주세요.' };
+        }
         yield { type: 'done' };
         return;
       }
 
+      // A turn that called a tool may also have emitted prose first. The
+      // thinking indicator is spent either way before the tool's own status
+      // takes over.
+      if (!opened) yield { type: 'status', label: '생각하고 있어요', done: true };
+
       // The model's own turn has to go back into the history verbatim — parts
       // and all — or the function responses below have nothing to attach to.
-      contents.push({ role: 'model', parts: response.candidates?.[0]?.content?.parts ?? [] });
+      // The model's own turn goes back into the history verbatim — parts and
+      // all — or the function responses below have nothing to attach to. These
+      // are accumulated across chunks rather than read off one response, which
+      // is the only thing streaming changed here.
+      contents.push({ role: 'model', parts: parts ?? [] });
 
       // Gemini can return several calls in one turn. Run them in order rather
       // than in parallel: two of the four hit Postgres and one hits Apify, and
