@@ -22,6 +22,8 @@ export type ProblemCode =
   | 'not-group-member'
   | 'last-owner'
   | 'duplicate-saved-place'
+  | 'invalid-credentials'
+  | 'login-rate-limited'
   | 'oauth-failed'
   | 'oauth-email-required'
   | 'internal-error';
@@ -41,6 +43,8 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'not-group-member':         { status: 403, title: 'Not a group member',          detail: 'You are not a member of this group.' },
   'last-owner':               { status: 409, title: 'Group would have no owner',   detail: 'Make someone else an owner before leaving.' },
   'duplicate-saved-place':    { status: 409, title: 'Already saved',               detail: 'You already saved this place here.' },
+  'invalid-credentials':      { status: 401, title: 'Sign-in failed',             detail: '이메일 또는 비밀번호가 맞지 않아요.' },
+  'login-rate-limited':       { status: 429, title: 'Too many attempts',          detail: '로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.' },
   'oauth-failed':             { status: 400, title: 'Sign-in did not complete',   detail: 'That sign-in did not complete. Try again.' },
   'oauth-email-required':     { status: 409, title: 'Email permission required',  detail: 'Gaja needs your email address so you can always get back in. Allow email access and try again.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },

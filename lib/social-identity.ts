@@ -31,11 +31,15 @@ export type VerifiedIdentity = {
  *      address still lands on the same account.
  *
  *   2. The identity is new but the provider asserts a *verified* email matching
- *      an existing account — link it. Matching on a verified address is safe in
- *      both directions: Google and Kakao only assert an address they control,
- *      and Gaja only stores `email` after its own magic-link round trip. Matching
- *      on an unverified address would be account takeover, which is why
+ *      an existing account — link it. Only a verified assertion earns the match:
+ *      Google and Kakao assert an address only when they control it, and
+ *      matching on an unverified one would be account takeover, which is why
  *      `emailVerified` is checked and not assumed.
+ *
+ *      Our own `users.email` proves nothing in return. `POST /auth/password`
+ *      writes an address with `email_verified_at` left null, and nobody checked
+ *      that whoever typed it owns it — so a match against an unverified row is a
+ *      *claim* on an unowned row, not a link. See claimUnverifiedRow.
  *
  *   3. Otherwise create an account.
  *
@@ -63,10 +67,13 @@ export async function resolveSocialIdentity(id: VerifiedIdentity): Promise<Sessi
 
     // 2 — new identity, verified email we already know.
     if (id.email && id.emailVerified) {
+      const email = id.email.toLowerCase();
+      await claimUnverifiedRow(c, email);
+
       const existing = await c.query<SessionUser>(
         `update users set last_active_at = now() where email = $1
       returning ${USER_COLUMNS}`,
-        [id.email.toLowerCase()],
+        [email],
       );
       if (existing.rows[0]) {
         await link(c, id, existing.rows[0].id);
@@ -89,6 +96,44 @@ export async function resolveSocialIdentity(id: VerifiedIdentity): Promise<Sessi
     await link(c, id, created.rows[0].id);
     return created.rows[0];
   });
+}
+
+/**
+ * Take over the row holding `email` if it has never proven it owns that address.
+ *
+ * A row with `email_verified_at` null has no proven owner: `POST /auth/password`
+ * will insert one for any address at all, including yours, and the only thing
+ * that happened is that somebody typed it. Presenting a provider-verified
+ * identity for that address is the first actual proof, so the presenter claims
+ * the row instead of walking into whatever the typist left in it.
+ *
+ * The claim empties the password and kills every live session on the row. That
+ * will read as a bug to whoever finds it next — a user who signs up with a
+ * password and then signs in with Google loses the password they just set and
+ * has to set a new one. It is deliberate. While the address is unverified we
+ * cannot tell that person apart from a squatter being evicted by the real
+ * owner: both write the identical row, and the row is all we have. So we take
+ * the reading that costs an honest user one password reset over the reading
+ * that leaves an attacker a working password and a live cookie inside the
+ * account its owner just claimed.
+ *
+ * The magic-link exchange in app/api/auth/session/route.ts runs these same two
+ * statements against `users.id`. The two must stay in step.
+ */
+async function claimUnverifiedRow(c: import('pg').PoolClient, email: string): Promise<void> {
+  const claimed = await c.query<{ id: string }>(
+    `update users
+        set email_verified_at = now(), password_hash = null, password_set_at = null
+      where email = $1 and email_verified_at is null
+  returning id`,
+    [email],
+  );
+  if (!claimed.rows[0]) return;
+
+  await c.query(
+    `update sessions set revoked_at = now() where user_id = $1 and revoked_at is null`,
+    [claimed.rows[0].id],
+  );
 }
 
 async function link(

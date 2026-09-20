@@ -108,8 +108,18 @@ export async function listSavedPlacesForUser(userId: string, limit = 30) {
  * section that shows what you have already got is not a recommendation.
  */
 export async function listPlacesNearby(area: string, userId: string, limit = 10) {
-  return query<{ id: string; name: string; category: string; area: string }>(
-    `select p.id, p.name, p.category, p.area
+  // `lat`/`lng` are NOT NULL in `places` (the migration's CHECK constraints bound
+  // them to real coordinates), so the map can plot every row it gets back — there
+  // is no "place without a position" case for the caller to handle.
+  return query<{
+    id: string;
+    name: string;
+    category: string;
+    area: string;
+    lat: number;
+    lng: number;
+  }>(
+    `select p.id, p.name, p.category, p.area, p.lat, p.lng
        from places p
       where p.area = $1
         and not exists (select 1 from saved_places sp

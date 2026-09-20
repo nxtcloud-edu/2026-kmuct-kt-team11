@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { Card, Content } from '@/components/surface';
+import { Content } from '@/components/surface';
 import { PlaceDeck } from './deck';
+import { NearbyMap } from './nearby-map';
 import { requireSession } from '@/lib/require-session';
 import { listPlacesNearby, listSavedPlacesForUser } from '@/lib/saved-places';
 
@@ -76,17 +77,11 @@ export default async function HomePage() {
         {null}
       </Section>
 
+      {/* A map, not a list: "near you" is a question about distance, and the
+          names alone cannot answer it. `NearbyMap` falls back to the list when
+          no Maps key is configured, so a fresh clone still gets this section. */}
       <Section title={`${user.home_area ?? ''} 근처`} empty={nearby.length === 0}>
-        <ul className="flex list-none flex-col gap-[var(--space-7)] p-0">
-          {nearby.map((p) => (
-            <Card as="li" key={p.id} className="p-4">
-              <p style={{ font: 'var(--type-card-title)' }}>{p.name}</p>
-              <p className="mt-0.5 text-secondary" style={{ font: 'var(--type-caption)' }}>
-                {CATEGORY_KO[p.category] ?? p.area}
-              </p>
-            </Card>
-          ))}
-        </ul>
+        <NearbyMap places={nearby} />
       </Section>
     </Content>
   );
@@ -127,17 +122,3 @@ function Section({
     </section>
   );
 }
-
-/**
- * `places.category` is an English enum in the database (the CHECK constraint is
- * the authority) and every word a user reads is Korean, so the labels are
- * translated at the point of display. This lives here rather than in a shared
- * module because home is the only screen that renders a bare category today.
- */
-const CATEGORY_KO: Record<string, string> = {
-  cafe: '카페',
-  restaurant: '음식점',
-  exhibition: '전시',
-  shop: '가게',
-  activity: '체험',
-};

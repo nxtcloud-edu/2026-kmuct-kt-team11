@@ -58,6 +58,43 @@ wherever the server is writing.
 To browse real data, `bash scripts/seed-prototype.sh` signs in a fixture user and
 creates 13 saved places across three Seoul areas.
 
+## Deploying
+
+Vercel, on the Hobby plan. The repo lives in a GitHub org, which Hobby can still build
+from — a GitHub org admin just has to approve the Vercel app for the org once, after
+which the normal "Import Project" flow works and every push gets a preview URL.
+
+`vercel.ts` (typed, via `@vercel/config`) pins two things: `framework: 'nextjs'` and
+`regions: ['icn1']`. Seoul, not the `iad1` default — see the comment in that file.
+
+Environment variables to set in the Vercel project, for Production and Preview both:
+
+| Variable | Notes |
+|---|---|
+| `DATABASE_URL` | Supabase **transaction pooler, port 6543** — not the direct connection on 5432. |
+| `NEXT_PUBLIC_APP_URL` | The deployment's own origin. Magic-link callbacks are built from it, so a wrong value sends people to localhost. |
+| `SUPABASE_URL` | Project URL. |
+| `SUPABASE_ANON_KEY` | Anon key. Public by design; row-level security is what protects the data. |
+| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | **Must carry an HTTP-referrer restriction** — see below. |
+
+Two of those are load-bearing enough to repeat:
+
+- **`DATABASE_URL` must be the 6543 transaction pooler.** Serverless functions multiply
+  with traffic and each instance opens its own pool, so direct 5432 connections run out.
+  `lib/db.ts` drops the pool to one connection per instance when `VERCEL` is set, which
+  only adds up if the other end is pooling too.
+- **The Maps key ships in the browser bundle.** Anything prefixed `NEXT_PUBLIC_` is
+  compiled into client JavaScript and is readable by anyone who loads the page. The key
+  is not a secret and cannot be made one; restrict it instead — HTTP-referrer restriction
+  to the deployment's domains, plus an API restriction to only the Maps APIs in use.
+  An unrestricted key is someone else's billable quota.
+
+**Magic links do not work in production yet.** No transactional email provider is wired
+into `lib/mail.ts`, so `POST /api/auth/magic-link` fails there; it currently surfaces as
+a 500, and becomes a clean 503 once the `mail-unavailable` problem code lands (see the
+note in `lib/mail.ts`). Password sign-in and sign-up work regardless and are the
+supported way in until a provider is chosen.
+
 ## Layout
 
 ```

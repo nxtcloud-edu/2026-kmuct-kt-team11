@@ -38,7 +38,7 @@ export default async function SignUpPage({ searchParams }: PageProps<'/sign-up'>
         </h1>
 
         <p className="mt-[var(--space-8)] text-secondary" style={{ font: 'var(--type-meta)' }}>
-          이메일만 있으면 돼요. 비밀번호는 없어요.
+          이메일과 비밀번호로 가입해요. 가입 링크를 메일로 받아도 돼요.
         </p>
       </header>
 

@@ -159,11 +159,134 @@ ck "an invalid MBTI is 422" 422 "$(code "$r")"
 r=$(req -X PATCH "$BASE/api/me" -H 'content-type: application/json' -d '{"age_band":"99s"}')
 ck "an invalid age_band is 422" 422 "$(code "$r")"
 
+echo "── password auth ──────────────────────────────────────────────────────"
+PJAR=$(mktemp); PHDR=$(mktemp)
+# $RANDOM alone has 32768 values and `users` is never emptied between runs, so a
+# collision turns an expected 201 into a 409 and the case fails for the wrong
+# reason. $$ plus the clock makes every address below unique per run.
+RUN="$$-$(date +%s)-$RANDOM"
+PEMAIL="pw-$RUN@example.com"
+# The one answer all three indistinguishability cases must give, spelled out so an
+# empty jget (a changed response shape) fails instead of matching another empty.
+INVALID="https://gaja.app/errors/invalid-credentials"
+pwx() { # pwx <cookie-jar> <json-body> [extra curl args…]
+  local j=$1 b=$2; shift 2
+  curl -s -b "$j" -c "$j" -w '\n%{http_code}' -X POST "$BASE/api/auth/password" \
+    -H 'content-type: application/json' -d "$b" "$@"
+}
+pw() { pwx "$PJAR" "$1"; }
+mlink() { # mlink <email> — request a magic link, echo the token the dev log printed.
+  curl -s -o /dev/null -X POST "$BASE/api/auth/magic-link" -H 'content-type: application/json' \
+    -d "{\"email\":\"$1\",\"intent\":\"sign_in\"}"
+  # -a is load-bearing: the dev log carries NUL bytes and plain grep prints nothing.
+  grep -a -o 'token=[A-Za-z0-9_-]*' "$LOG" | tail -1 | sed 's/token=//'
+}
+
+r=$(pw "{\"email\":\"$PEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_up\"}")
+ck "sign-up with a password creates an account" 201 "$(code "$r")"
+
+r=$(pw "{\"email\":\"$PEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_up\"}")
+ck "signing up twice is 409, not a takeover" 409 "$(code "$r")"
+
+r=$(pw "{\"email\":\"$PEMAIL\",\"password\":\"short\",\"intent\":\"sign_in\"}")
+ck "a password under 8 chars is 422" 422 "$(code "$r")"
+
+r=$(pw "{\"email\":\"$PEMAIL\",\"password\":\"wrong-password\",\"intent\":\"sign_in\"}")
+ck "a wrong password is 401" 401 "$(code "$r")" \
+   "$([ "$(body "$r" | jget "['type']")" = "$INVALID" ] && echo ok || echo 'wrong problem type')"
+
+# The enumeration check: an address that does not exist must answer exactly as a
+# wrong password does. A different status or problem type here is the oracle.
+# Both halves are asserted against the literal answer, not against each other —
+# jget swallows errors to "", and "" == "" is a case that tests nothing.
+r2=$(pw "{\"email\":\"nosuch-$RUN@example.com\",\"password\":\"wrong-password\",\"intent\":\"sign_in\"}")
+ck "an unknown address is indistinguishable from a wrong password" 401 "$(code "$r2")" \
+   "$([ "$(body "$r2" | jget "['type']")" = "$INVALID" ] && echo ok || echo 'wrong problem type')"
+
+# The magic-link account from earlier has no password at all; it must also be
+# indistinguishable rather than admitting it has none.
+r3=$(pw "{\"email\":\"$EMAIL\",\"password\":\"wrong-password\",\"intent\":\"sign_in\"}")
+ck "a passwordless account is indistinguishable too" 401 "$(code "$r3")" \
+   "$([ "$(body "$r3" | jget "['type']")" = "$INVALID" ] && echo ok || echo 'wrong problem type')"
+
+r=$(pw "{\"email\":\"$PEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_in\"}")
+ck "the right password signs in" 200 "$(code "$r")"
+ck "  and the session works" 200 \
+   "$(curl -s -o /dev/null -w '%{http_code}' -b "$PJAR" "$BASE/api/me")"
+
+# Sign-up spends from the same per-address budget as sign-in, so probing an
+# address costs what guessing a password costs: repeating a sign-up against an
+# address we already know must stop answering 409 and start answering 429.
+# The budget is per address, so this burst uses one of its own and leaves the
+# cases above and below untouched.
+TEMAIL="pw-throttle-$RUN@example.com"
+r=$(pwx /dev/null "{\"email\":\"$TEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_up\"}")
+ck "throttle fixture signs up" 201 "$(code "$r")"
+tries=0
+while [ "$tries" -lt 12 ]; do
+  r=$(pwx /dev/null "{\"email\":\"$TEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_up\"}" -D "$PHDR")
+  [ "$(code "$r")" = "429" ] && break
+  tries=$((tries+1))
+done
+ck "repeating a sign-up on a known address is throttled, not 409 forever" 429 "$(code "$r")"
+ck "  and the 429 carries Retry-After" "ok" \
+   "$(grep -qai '^retry-after:' "$PHDR" && echo ok || echo missing)"
+
+# A proven identity wipes the address's failure budget: five failures, one success,
+# five more failures is ten failures against a MAX_FAILURES of 8 in a 15-minute
+# window, so a 429 anywhere in the second burst means the success did not reset it.
+CEMAIL="pw-reset-$RUN@example.com"
+r=$(pwx /dev/null "{\"email\":\"$CEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_up\"}")
+ck "reset fixture signs up" 201 "$(code "$r")"
+for _ in 1 2 3 4 5; do
+  r=$(pwx /dev/null "{\"email\":\"$CEMAIL\",\"password\":\"wrong-password\",\"intent\":\"sign_in\"}")
+done
+ck "  five failures stay under the limit" 401 "$(code "$r")"
+r=$(pwx /dev/null "{\"email\":\"$CEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_in\"}")
+ck "  then the right password still signs in" 200 "$(code "$r")"
+tripped=""
+for _ in 1 2 3 4 5; do
+  r=$(pwx /dev/null "{\"email\":\"$CEMAIL\",\"password\":\"wrong-password\",\"intent\":\"sign_in\"}")
+  [ "$(code "$r")" = "429" ] && tripped=yes
+done
+ck "a successful sign-in clears the failure count" 401 "$(code "$r")" \
+   "$([ -z "$tripped" ] && echo ok || echo 'the limit tripped mid-burst')"
+
+# The defect that prompted this suite: anyone can set a password on an address
+# they do not own. Proving ownership of it by magic link must clear that password,
+# or the squatter keeps a way in behind the real owner.
+# Ordering: this case and the one after it each read the newest token out of the
+# dev log, so each must follow its own magic-link request immediately. They are
+# independent of each other, but neither survives an interleaved magic link.
+SQEMAIL="pw-squat-$RUN@example.com"
+r=$(pwx /dev/null "{\"email\":\"$SQEMAIL\",\"password\":\"squatter-pass\",\"intent\":\"sign_up\"}")
+ck "a squatter can set a password on an address they do not own" 201 "$(code "$r")"
+SQTOKEN=$(mlink "$SQEMAIL")
+r=$(curl -s -b /dev/null -c /dev/null -w '\n%{http_code}' -X POST "$BASE/api/auth/session" \
+     -H 'content-type: application/json' -d "{\"token\":\"$SQTOKEN\"}")
+ck "  the real owner's magic link signs them in" 200 "$(code "$r")" \
+   "$([ "$(body "$r" | jget "['outcome']")" = "signed_in" ] && echo ok || echo 'wrong outcome')"
+r=$(pwx /dev/null "{\"email\":\"$SQEMAIL\",\"password\":\"squatter-pass\",\"intent\":\"sign_in\"}")
+ck "  and verifying the address kills the squatted password" 401 "$(code "$r")" \
+   "$([ "$(body "$r" | jget "['type']")" = "$INVALID" ] && echo ok || echo 'wrong problem type')"
+
+# A password sign-up leaves email_verified_at NULL. That unverified row must still
+# be the row the magic link matches — otherwise the squatter's account shadows the
+# address forever and the owner's link is a dead end rather than a takeover.
+UVEMAIL="pw-unverified-$RUN@example.com"
+r=$(pwx /dev/null "{\"email\":\"$UVEMAIL\",\"password\":\"correct-horse\",\"intent\":\"sign_up\"}")
+ck "sign-up leaves the address unverified" 201 "$(code "$r")"
+UVTOKEN=$(mlink "$UVEMAIL")
+r=$(curl -s -b /dev/null -c /dev/null -w '\n%{http_code}' -X POST "$BASE/api/auth/session" \
+     -H 'content-type: application/json' -d "{\"token\":\"$UVTOKEN\"}")
+ck "an unverified address is still matchable by magic link" 200 "$(code "$r")" \
+   "$([ "$(body "$r" | jget "['outcome']")" = "signed_in" ] && echo ok || echo 'wrong outcome')"
+
 echo "── sign out ────────────────────────────────────────────────────────────"
 r=$(req -X DELETE "$BASE/api/auth/session"); ck "DELETE /auth/session is 204" 204 "$(code "$r")"
 r=$(req "$BASE/api/me"); ck "session is revoked server-side" 401 "$(code "$r")"
 
-rm -f "$JAR" "$OTHER"
+rm -f "$JAR" "$OTHER" "$PJAR" "$PHDR"
 echo
 printf '  \033[1m%d passed, %d failed\033[0m\n' "$pass" "$fail"
 exit $(( fail > 0 ))

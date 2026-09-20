@@ -38,7 +38,7 @@ export default async function SignInPage({ searchParams }: PageProps<'/sign-in'>
         </h1>
 
         <p className="mt-[var(--space-8)] text-secondary" style={{ font: 'var(--type-meta)' }}>
-          이메일로 로그인 링크를 보내드려요. 비밀번호는 없어요.
+          이메일과 비밀번호로 로그인해요. 로그인 링크를 메일로 받아도 돼요.
         </p>
       </header>
 

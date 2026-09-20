@@ -37,6 +37,20 @@ re-litigated without a reason.
 | D1 | **Architecture B** — fixed pipeline, LLM inside each stage, bounded repair loop | The agent order never varies; an LLM router pays nondeterminism for a settled question. Reproducibility matters when demoing live. |
 | D2 | **DM is inbox and notify only.** No planning conversation in DM | A DM thread has no rendering and no state. Keeping it dumb keeps the integration we control least as small as possible. |
 | D3 | **Identity is the IG-scoped user ID; `igsid` is nullable; every account needs ≥1 recovery channel** | Preserves "no signup form" for IG users (DM *is* password reset) while group-invite joiners, who have no IGSID, still have a way back in. |
+
+> **D3 amended 2026-09-20 — passwords added.** Email-and-password sign-up and sign-in
+> now exist alongside magic links, at the user's direction. The rest of D3 stands:
+> identity is still the IG-scoped user id, `igsid` is still nullable, and an account
+> still needs at least one recovery channel.
+>
+> A password is deliberately **not** a recovery channel. `users_recovery_channel_required`
+> is unchanged and still counts only `igsid` and `email`, because losing a password is
+> precisely the case the magic link recovers from — a channel that cannot recover itself
+> is not one. The "no signup form" property survives for Instagram users, who still
+> arrive through the DM with no email and no password.
+>
+> See `supabase/migrations/20260920000004_password_auth.sql` and
+> `app/api/auth/password/route.ts`.
 | D4 | **Seoul now, `PlaceSource` adapter from day one** | Tokyo becomes a second adapter rather than a rewrite of the research agent. |
 | D5 | **Groups, with union-and-attribution planning** | A date itinerary is a two-person artifact. Plan from both profiles, attribute each stop, balance across the day rather than per stop. |
 | D6 | **Explainable JSON profiles, not embeddings** | Attribution requires saying *why*; an embedding can score but not explain. Also honest about cold start. |
