@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Visual territories — Gaja</title>
+<style>
+  :root{ --page:#f4f4f2; --meta:#16171a; --meta-mute:rgba(22,23,26,.6); --rule:rgba(22,23,26,.14); }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--meta);
+       font:400 14px/1.5 ui-sans-serif,-apple-system,"Helvetica Neue",Arial,sans-serif;
+       -webkit-font-smoothing:antialiased}
+  header{padding:44px 32px 22px;border-bottom:1px solid var(--rule)}
+  header h1{margin:0 0 8px;font-size:21px;font-weight:400;letter-spacing:-.2px}
+  header p{margin:0 0 4px;color:var(--meta-mute);max-width:74ch}
+  header .concept{margin-top:14px;font-size:13px;color:var(--meta-mute);max-width:74ch}
+  header .concept b{color:var(--meta);font-weight:500}
+  .board{display:grid;grid-template-columns:repeat(3,1fr)}
+  @media (max-width:1040px){.board{grid-template-columns:1fr}}
+  .t{border-right:1px solid var(--rule);background:var(--canvas);color:var(--ink);
+     display:flex;flex-direction:column}
+  .t:last-child{border-right:0}
+  .t > *{padding:0 26px}
+  .tag{padding-top:26px;font:400 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;
+       letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+  .name{padding-top:10px;padding-bottom:2px}
+  .principle{color:var(--mute);font-size:13px;padding-bottom:18px;max-width:34ch}
+  .swatches{display:flex;gap:0;padding:0;margin:0 26px 18px;border:1px solid var(--hair)}
+  .sw{flex:1;padding:10px 8px 8px;font:400 10px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;
+      border-right:1px solid var(--hair)}
+  .sw:last-child{border-right:0}
+  .sw .chip{display:block;height:26px;margin:-10px -8px 8px;border-bottom:1px solid var(--hair)}
+  .sw b{display:block;font-weight:400;letter-spacing:.04em;text-transform:uppercase}
+  .sw span{color:var(--mute)}
+  .specimen{padding-bottom:18px;border-bottom:1px solid var(--hair);margin-bottom:18px}
+  .demo{padding-bottom:20px}
+  .note{margin-top:auto;padding:16px 26px 26px;border-top:1px solid var(--hair);font-size:12.5px}
+  .note b{display:block;font-weight:500;margin-bottom:2px}
+  .note p{margin:0 0 10px;color:var(--mute)}
+  .note .risk b{color:var(--alert)}
+
+  /* ── A · 영수증 RECEIPT ─────────────────────────────────────── */
+  .A{--canvas:#FBFAF8;--ink:#14140F;--mute:#676763;--hair:rgba(20,20,15,.13);--alert:#B42318;
+     --fam:-apple-system,"Helvetica Neue",Arial,"Apple SD Gothic Neo",sans-serif;
+     --mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .A .name{font:400 34px/1 var(--fam);letter-spacing:-.02em}
+  .A .specimen h2{margin:0 0 6px;font:400 26px/1.25 var(--fam);letter-spacing:-.02em}
+  .A .specimen p{margin:0;font:400 14px/1.6 var(--fam);color:var(--mute)}
+  .A .row{display:grid;grid-template-columns:52px 1fr;gap:12px;padding:12px 0;
+          border-bottom:1px solid var(--hair)}
+  .A .row:first-child{border-top:1px solid var(--hair)}
+  .A .t-time{font:400 12px/1.3 var(--mono);color:var(--mute);padding-top:2px}
+  .A .t-name{font:400 15px/1.35 var(--fam)}
+  .A .t-meta{font:400 11.5px/1.5 var(--mono);color:var(--mute);margin-top:3px}
+  .A .t-flag{font:400 11.5px/1.5 var(--mono);color:var(--alert);margin-top:3px}
+
+  /* ── B · 티켓 TICKET ────────────────────────────────────────── */
+  .B{--canvas:#F2EEE6;--ink:#1A1714;--mute:#686460;--hair:rgba(26,23,20,.16);--alert:#B03A16;
+     --fam:"Avenir Next","Helvetica Neue","Apple SD Gothic Neo",sans-serif;
+     --cond:"Avenir Next Condensed","Helvetica Neue Condensed",Impact,sans-serif}
+  .B .name{font:400 34px/1 var(--cond);letter-spacing:.02em;text-transform:uppercase}
+  .B .specimen h2{margin:0 0 6px;font:400 25px/1.2 var(--cond);letter-spacing:.01em}
+  .B .specimen p{margin:0;font:400 14px/1.6 var(--fam);color:var(--mute)}
+  .B .stub{border:1.5px solid var(--ink);background:#FAF7F1}
+  .B .stub-top{display:flex;justify-content:space-between;align-items:baseline;
+               padding:10px 12px;border-bottom:1.5px dashed var(--hair)}
+  .B .stub-top span{font:400 11px/1 var(--cond);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+  .B .leg{display:flex;gap:12px;padding:11px 12px;border-bottom:1px dashed var(--hair)}
+  .B .leg:last-child{border-bottom:0}
+  .B .hh{font:400 20px/1 var(--cond);letter-spacing:.01em;min-width:46px}
+  .B .lg-name{font:400 14.5px/1.3 var(--fam)}
+  .B .lg-meta{font:400 11px/1.5 var(--cond);letter-spacing:.06em;text-transform:uppercase;color:var(--mute);margin-top:2px}
+  .B .stamp{display:inline-block;margin-top:4px;padding:1px 6px;border:1.5px solid var(--alert);
+            color:var(--alert);font:400 10.5px/1.5 var(--cond);letter-spacing:.12em;
+            text-transform:uppercase;transform:rotate(-2deg)}
+
+  /* ── C · 보드 BOARD ─────────────────────────────────────────── */
+  .C{--canvas:#E9EAEE;--card:#fff;--ink:#101114;--mute:#666769;--hair:rgba(16,17,20,.1);--alert:#B42318;
+     --fam:"Futura","Avenir Next","Century Gothic","Apple SD Gothic Neo",sans-serif}
+  .C .name{font:400 34px/1 var(--fam);letter-spacing:-.01em}
+  .C .specimen h2{margin:0 0 6px;font:400 25px/1.25 var(--fam);letter-spacing:-.01em}
+  .C .specimen p{margin:0;font:400 14px/1.6 var(--fam);color:var(--mute)}
+  .C .card{background:var(--card);border-radius:10px;padding:12px 13px;margin-bottom:8px;
+           box-shadow:0 1px 2px rgba(16,17,20,.07)}
+  .C .card .lbl{font:400 10px/1 var(--fam);letter-spacing:.1em;text-transform:uppercase;
+                color:var(--mute);margin-bottom:6px}
+  .C .card .cn{font:400 15px/1.3 var(--fam)}
+  .C .card .cm{font:400 12px/1.5 var(--fam);color:var(--mute);margin-top:3px}
+  .C .slot{border:1.5px dashed rgba(16,17,20,.22);border-radius:10px;padding:12px 13px;
+           margin-bottom:8px;color:var(--mute);font:400 12.5px/1.4 var(--fam)}
+  .C .swap{color:var(--alert)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Gaja — visual territories</h1>
+  <p>Three directions that would produce different buildings, not three tints of one idea. Pick one, or blend (“B, but A’s data register”).</p>
+  <p class="concept">
+    <b>Feels like</b> a friend who actually checked — and shows the receipts.
+    <b>Never</b> a travel app’s aspirational feed, or an AI product’s tech costume.
+    <b>Tension:</b> committed but auditable — it makes the call <i>and</i> shows its work.
+    <b>Without the logo:</b> every claim carries its receipt, set in a register plainer than the claim.
+  </p>
+</header>
+
+<div class="board">
+
+  <!-- ══ A ══ -->
+  <article class="t A">
+    <div class="tag">Territory A</div>
+    <div class="name">가자</div>
+    <div class="principle">영수증 · <b>Receipt.</b> The interface is a record of what was checked. Monospace marks anything the system verified; proportional type is what a human wrote. The font is the provenance marker.</div>
+    <div class="swatches">
+      <div class="sw"><span class="chip" style="background:#FBFAF8"></span><b>canvas</b><span>#FBFAF8</span></div>
+      <div class="sw"><span class="chip" style="background:#14140F"></span><b>ink</b><span>17.7:1</span></div>
+      <div class="sw"><span class="chip" style="background:#676763"></span><b>mute</b><span>5.45:1</span></div>
+      <div class="sw"><span class="chip" style="background:#B42318"></span><b>alert</b><span>6.3:1</span></div>
+    </div>
+    <div class="specimen">
+      <h2>토요일 성수, 3곳</h2>
+      <p>웨이팅 2시간이라 카페를 바꿨어요. 근거는 아래에 있습니다.</p>
+    </div>
+    <div class="demo">
+      <div class="row"><div class="t-time">13:00</div><div>
+        <div class="t-name">어니언 성수</div>
+        <div class="t-meta">11:00–21:00 · 네이버 · 2시간 전 확인</div></div></div>
+      <div class="row"><div class="t-time">15:20</div><div>
+        <div class="t-name">대림창고</div>
+        <div class="t-meta">도보 9분 · 450m</div>
+        <div class="t-flag">토요일 오후 웨이팅 90–120분 — 신뢰도 중 · 9/2 리뷰</div></div></div>
+      <div class="row"><div class="t-time">17:00</div><div>
+        <div class="t-name">성수연방</div>
+        <div class="t-meta">영업시간 미확인 — 네이버 응답 없음</div></div></div>
+    </div>
+    <div class="note">
+      <b>Safe part</b><p>Reads as trustworthy and survives density. The mono/proportional split makes “verified” visible without a badge, and D10 (degrade loudly) has a natural home.</p>
+      <div class="risk"><b>One risk</b><p>Can tip into admin-tool. The reel you saved was joyful; a receipt is not. Needs one warm move to stay consumer.</p></div>
+    </div>
+  </article>
+
+  <!-- ══ B ══ -->
+  <article class="t B">
+    <div class="tag">Territory B</div>
+    <div class="name">GAJA</div>
+    <div class="principle">티켓 · <b>Ticket.</b> A day is an object you hold. Time is the spine at the left edge, legs are divided by perforation, and status arrives as a stamp — something pressed onto the plan after the fact.</div>
+    <div class="swatches">
+      <div class="sw"><span class="chip" style="background:#F2EEE6"></span><b>canvas</b><span>#F2EEE6</span></div>
+      <div class="sw"><span class="chip" style="background:#1A1714"></span><b>ink</b><span>15.4:1</span></div>
+      <div class="sw"><span class="chip" style="background:#686460"></span><b>mute</b><span>5.07:1</span></div>
+      <div class="sw"><span class="chip" style="background:#B03A16"></span><b>stamp</b><span>5.24:1</span></div>
+    </div>
+    <div class="specimen">
+      <h2>토요일 성수, 3곳</h2>
+      <p>웨이팅 2시간이라 카페를 바꿨어요. 근거는 아래에 있습니다.</p>
+    </div>
+    <div class="demo">
+      <div class="stub">
+        <div class="stub-top"><span>성수 · 토요일</span><span>3 legs</span></div>
+        <div class="leg"><div class="hh">13:00</div><div>
+          <div class="lg-name">어니언 성수</div>
+          <div class="lg-meta">Naver · checked 2h ago</div></div></div>
+        <div class="leg"><div class="hh">15:20</div><div>
+          <div class="lg-name">대림창고</div>
+          <div class="lg-meta">9 min walk · 450m</div>
+          <span class="stamp">Swapped · wait 2h</span></div></div>
+        <div class="leg"><div class="hh">17:00</div><div>
+          <div class="lg-name">성수연방</div>
+          <span class="stamp">Hours unverified</span></div></div>
+      </div>
+    </div>
+    <div class="note">
+      <b>Safe part</b><p>Instantly legible as <i>a plan</i> rather than a list. The stamp is a ready-made vocabulary for every status D10 demands, and it reads at a glance on a phone.</p>
+      <div class="risk"><b>One risk</b><p>Metaphor can go twee fast — perforations and stamps become decoration by the third screen. Condensed type also needs a licence check for Korean.</p></div>
+    </div>
+  </article>
+
+  <!-- ══ C ══ -->
+  <article class="t C">
+    <div class="tag">Territory C</div>
+    <div class="name">가자</div>
+    <div class="principle">보드 · <b>Board.</b> A planning surface where things move. Stops are objects on a tinted ground; when the agent swaps one, you see the gap it left. The edit is spatial, not textual.</div>
+    <div class="swatches">
+      <div class="sw"><span class="chip" style="background:#E9EAEE"></span><b>canvas</b><span>#E9EAEE</span></div>
+      <div class="sw"><span class="chip" style="background:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)"></span><b>card</b><span>#FFFFFF</span></div>
+      <div class="sw"><span class="chip" style="background:#101114"></span><b>ink</b><span>18.9:1</span></div>
+      <div class="sw"><span class="chip" style="background:#B42318"></span><b>alert</b><span>6.57:1</span></div>
+    </div>
+    <div class="specimen">
+      <h2>토요일 성수, 3곳</h2>
+      <p>웨이팅 2시간이라 카페를 바꿨어요. 근거는 아래에 있습니다.</p>
+    </div>
+    <div class="demo">
+      <div class="card"><div class="lbl">13:00 · 카페</div>
+        <div class="cn">어니언 성수</div>
+        <div class="cm">11:00–21:00 · 2시간 전 확인</div></div>
+      <div class="slot swap">↕ 대림창고 was here — 웨이팅 90–120분<br>replaced below</div>
+      <div class="card"><div class="lbl">15:20 · 카페</div>
+        <div class="cn">성수연방</div>
+        <div class="cm">도보 9분 · 450m</div></div>
+      <div class="card"><div class="lbl">17:00 · 전시</div>
+        <div class="cn">디뮤지엄</div>
+        <div class="cm">영업시간 미확인</div></div>
+    </div>
+    <div class="note">
+      <b>Safe part</b><p>The agent’s edit is the most legible of the three — you see the hole the swap left, which is exactly the moment the product is selling.</p>
+      <div class="risk"><b>One risk</b><p>Closest to the generic card-and-shadow app; it is the territory most likely to end up looking like everything else. Category labels also compete with the alert colour.</p></div>
+    </div>
+  </article>
+
+</div>
+</body>
+</html>
