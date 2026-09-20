@@ -21,6 +21,20 @@ const Body = z
       .regex(/^[EI][SN][TF][JP]$/, 'Not a valid MBTI type.')
       .nullable()
       .optional(),
+    // A HINT, not a binding. Whatever arrives here is something a user typed, so
+    // it may narrow a lookup later and it may never route a DM on its own — see
+    // docs/gaja/instagram-binding.md. Normalised before validation so '@Koh_Min_',
+    // 'Koh_Min_' and 'koh_min_' are one value: Instagram handles are
+    // case-insensitive, and storing the typing would make them three.
+    instagram_handle: z
+      .string()
+      .trim()
+      .transform((v) => v.replace(/^@+/, '').toLowerCase())
+      // Same alphabet and length as users_instagram_handle_shape. Validated here
+      // as well as by the CHECK so a typo is a 422 naming the field, not a 500.
+      .refine((v) => /^[a-z0-9._]{1,30}$/.test(v), '인스타그램 아이디 형식이 아니에요.')
+      .nullable()
+      .optional(),
     // `true` is the only accepted value. Finishing onboarding is not a thing
     // that un-happens, so there is no `false` for the client to send.
     onboarded: z.literal(true).optional(),
@@ -43,6 +57,12 @@ export const PATCH = withRoute(async (req: Request) => {
         gender       = case when $7::boolean  then $8  else gender end,
         age_band     = case when $9::boolean  then $10 else age_band end,
         mbti         = case when $11::boolean then $12 else mbti end,
+        -- Presence boolean again: an explicit null clears the claim, an absent
+        -- key leaves it alone. Nothing here touches igsid or instagram_linked_at,
+        -- and nothing ever should — a PATCH body is the definition of unverified.
+        -- A duplicate raises 23505 on users_instagram_handle_lower_idx, which
+        -- lib/route.ts turns into a 409 instagram-handle-taken.
+        instagram_handle = case when $14::boolean then $15 else instagram_handle end,
         -- Only ever set, never cleared: 'onboarded' is a z.literal(true), so
         -- there is no request shape that puts this column back to null. "I
         -- finished onboarding" is not a thing that becomes false.
@@ -50,7 +70,8 @@ export const PATCH = withRoute(async (req: Request) => {
         onboarded_at = case when $13::boolean then now() else onboarded_at end,
         last_active_at = now()
       where id = $1
-  returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
+  returning id, display_name, avatar_url, email, email_verified_at, igsid,
+            instagram_handle, locale,
             home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
             onboarded_at`,
     [
@@ -67,6 +88,8 @@ export const PATCH = withRoute(async (req: Request) => {
       'mbti' in body,
       body.mbti ?? null,
       body.onboarded === true,
+      'instagram_handle' in body,
+      body.instagram_handle ?? null,
     ],
   );
   return json(toMe(updated!));

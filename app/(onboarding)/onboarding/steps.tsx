@@ -7,7 +7,7 @@ import { ApiError, NetworkError, apiFetch } from '@/lib/api/client';
 import { MBTI_TYPES, mbtiImage, type MbtiType } from '@/lib/mbti';
 
 /**
- * Onboarding, four steps.
+ * Onboarding, five steps.
  *
  * Only the nickname is required. Everything else can be skipped, and skipping
  * writes nothing for that field while still completing the flow — skipping is an
@@ -20,6 +20,13 @@ import { MBTI_TYPES, mbtiImage, type MbtiType } from '@/lib/mbti';
  * arrived. 성별 offers 선택 안 함 and MBTI offers 잘 모르겠어요 for the same
  * reason — a forced guess would poison the recommendations these questions exist
  * to feed.
+ *
+ * The last step asks for an Instagram handle. It is a HINT and nothing else: it
+ * may narrow a lookup when a DM arrives from an igsid nobody recognises, and it
+ * can never route that DM by itself — binding needs a signed webhook payload plus
+ * a confirmation from inside a signed-in session. docs/gaja/instagram-binding.md
+ * is the rule; the copy on the step is careful not to promise more than that,
+ * because nothing downstream of it is built yet.
  *
  * Motion is opacity only. The system's budget has no transforms, so steps
  * cross-fade rather than slide.
@@ -34,6 +41,7 @@ type Draft = {
   age_band?: AgeBand;
   mbti?: MbtiType;
   home_area?: string;
+  instagram_handle?: string;
 };
 
 const GENDERS: { value: Gender; label: string }[] = [
@@ -52,17 +60,34 @@ const AGE_BANDS: { value: AgeBand; label: string }[] = [
 
 const AREAS = ['성수', '연남', '한남', '강남', '을지로', '홍대', '압구정', '여의도', '잠실', '기타'];
 
-const TOTAL = 4;
+const TOTAL = 5;
 
 export function OnboardingSteps({ initialName }: { initialName: string }) {
   const router = useRouter();
   const [step, setStep] = useState(0);
   const [draft, setDraft] = useState<Draft>({});
   const [name, setName] = useState(initialName);
+  const [handle, setHandle] = useState('');
   const [saving, setSaving] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
   const patch = (d: Partial<Draft>) => setDraft((prev) => ({ ...prev, ...d }));
+
+  // Derived during render, never written back into state by an effect. The field
+  // holds exactly what was typed; what the server is sent is computed from it.
+  // (Same normalisation as the zod schema in app/api/me/route.ts and the CHECK in
+  // 20260920000006 — three places, one alphabet.)
+  const normalisedHandle = handle.trim().replace(/^@+/, '').toLowerCase();
+  const handleMalformed =
+    normalisedHandle !== '' && !/^[a-z0-9._]{1,30}$/.test(normalisedHandle);
+
+  // What this step contributes to the draft. An absent key means "leave it
+  // alone" all the way to the SQL, so skipping never writes anything.
+  function stepAnswer(): Partial<Draft> {
+    if (step === 0) return { display_name: name.trim() };
+    if (step === 4) return normalisedHandle === '' ? {} : { instagram_handle: normalisedHandle };
+    return {};
+  }
 
   async function finish(final: Draft) {
     if (saving) return;
@@ -194,6 +219,41 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
           </Step>
         )}
 
+        {step === 4 && (
+          <Step heading="인스타그램 아이디 알려주실래요?">
+            <p className="text-secondary" style={{ font: 'var(--type-meta)' }}>
+              나중에 가자 인스타그램으로 릴스를 보내면 이 계정에 모아둘 수 있어요. 아직
+              준비 중인 기능이라, 아이디만 미리 받아둘게요.
+            </p>
+            <div className="flex h-[var(--field-height)] w-full items-center rounded-[var(--radius-2xl)] bg-surface-1 px-[var(--space-11)]">
+              <span className="text-secondary" style={{ font: 'var(--type-body)' }} aria-hidden>
+                @
+              </span>
+              <input
+                autoFocus
+                value={handle}
+                onChange={(e) => setHandle(e.target.value)}
+                maxLength={31}
+                aria-label="인스타그램 아이디"
+                aria-invalid={handleMalformed}
+                aria-describedby="handle-note"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                inputMode="text"
+                autoComplete="off"
+                className="ml-[var(--space-4)] h-full min-w-0 flex-1 bg-transparent outline-none"
+                style={{ font: 'var(--type-body)' }}
+              />
+            </div>
+            <p id="handle-note" className="text-secondary" style={{ font: 'var(--type-caption)' }}>
+              {handleMalformed
+                ? '영문 소문자와 숫자, 마침표, 밑줄만 쓸 수 있어요.'
+                : '아이디만으로는 연결되지 않아요. 나중에 인스타그램에서 한 번 더 확인해요.'}
+            </p>
+          </Step>
+        )}
+
         <div className="mt-auto flex flex-col gap-[var(--space-7)] pt-[var(--space-15)]">
           {failure ? (
             <p
@@ -207,8 +267,8 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
 
           <button
             type="button"
-            disabled={(step === 0 && name.trim() === '') || saving}
-            onClick={() => advance(step === 0 ? { display_name: name.trim() } : {})}
+            disabled={(step === 0 && name.trim() === '') || handleMalformed || saving}
+            onClick={() => advance(stepAnswer())}
             className="flex h-[var(--field-height)] items-center justify-center rounded-[var(--radius-lg)] bg-ink text-on-ink transition-opacity duration-200 active:opacity-[var(--press-opacity)] disabled:opacity-40"
             style={{ font: 'var(--type-button)' }}
           >

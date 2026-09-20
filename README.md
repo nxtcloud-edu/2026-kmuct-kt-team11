@@ -91,6 +91,22 @@ wherever the server is writing.
 To browse real data, `bash scripts/seed-prototype.sh` signs in a fixture user and
 creates 13 saved places across three Seoul areas.
 
+### Demo accounts
+
+`bash scripts/seed-accounts.sh` creates the two states worth demoing — a brand-new
+account that still has onboarding ahead of it, and an established one whose home
+screen is already full. Both use the password `gaja-demo-1234`:
+
+| Account | Lands on |
+|---|---|
+| `demo-new@example.com` | `/onboarding`, step 1 of 5 |
+| `demo-home@example.com` | `/home` — 민지, 활동 지역 성수, 8 saved places and a 성수 근처 map |
+
+The addresses are fixed, so the script deletes those two users before recreating
+them; re-running it gives a fresh un-onboarded account rather than a 409. It
+refuses to run unless `DATABASE_URL` and `BASE` both point at localhost — these
+accounts have a published password, and that is only safe locally.
+
 ## Deploying
 
 Vercel, on the Hobby plan. The repo lives in a GitHub org, which Hobby can still build
@@ -108,19 +124,31 @@ Environment variables to set in the Vercel project, for Production and Preview b
 | `NEXT_PUBLIC_APP_URL` | The deployment's own origin. Magic-link callbacks are built from it, so a wrong value sends people to localhost. |
 | `SUPABASE_URL` | Project URL. |
 | `SUPABASE_ANON_KEY` | Anon key. Public by design; row-level security is what protects the data. |
-| `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | **Must carry an HTTP-referrer restriction** — see below. |
+| `NEXT_PUBLIC_NAVER_MAP_CLIENT_ID` | Naver Maps JS key. Public by design; **must carry a domain whitelist** in the NCP console — see below. |
+| `NAVER_MAP_CLIENT_SECRET` | Server-only. Not used by the map; it authenticates the Geocoding/Directions APIs. Never prefix it `NEXT_PUBLIC_`. |
 
-Two of those are load-bearing enough to repeat:
+Three of those are load-bearing enough to repeat:
 
 - **`DATABASE_URL` must be the 6543 transaction pooler.** Serverless functions multiply
   with traffic and each instance opens its own pool, so direct 5432 connections run out.
   `lib/db.ts` drops the pool to one connection per instance when `VERCEL` is set, which
   only adds up if the other end is pooling too.
-- **The Maps key ships in the browser bundle.** Anything prefixed `NEXT_PUBLIC_` is
-  compiled into client JavaScript and is readable by anyone who loads the page. The key
-  is not a secret and cannot be made one; restrict it instead — HTTP-referrer restriction
-  to the deployment's domains, plus an API restriction to only the Maps APIs in use.
-  An unrestricted key is someone else's billable quota.
+- **The Naver map client ID ships in the browser bundle.** Anything prefixed
+  `NEXT_PUBLIC_` is compiled into client JavaScript, and this one is also visible in the
+  `maps.js` script URL on every page load. It is not a secret and cannot be made one;
+  restrict it instead — add every deployment origin to the key's domain (service URL)
+  whitelist in the NCP console. An unrestricted key is someone else's billable quota, and
+  a key whose whitelist is missing the origin loads the script fine and then fails auth at
+  runtime, which the map reports rather than showing an empty frame.
+- **`NAVER_MAP_CLIENT_SECRET` is a different kind of variable.** The JS Maps API does not
+  use it at all — it signs server-side Geocoding and Directions calls. It has no
+  `NEXT_PUBLIC_` form and must never appear in a client component; grepping `app/` and
+  `components/` for it should return nothing.
+
+Gaja uses Naver rather than Google here because the places are all in Seoul: Google's
+Korean basemap ships no driving directions, thin POI coverage, and frequently no Korean
+venue name, so it renders a city Korean users do not recognise. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+is no longer read anywhere and can be removed from the Vercel project.
 
 **Magic links do not work in production yet.** No transactional email provider is wired
 into `lib/mail.ts`, so `POST /api/auth/magic-link` fails there; it currently surfaces as

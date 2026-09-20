@@ -1,0 +1,98 @@
+{
+  "_fixture_note": "SYNTHETIC. Hand-written to the SHAPE recorded in docs/gaja/reel-extraction-findings.md, not captured from a live account. Every id, handle, venue, address and caption below is invented; no real third-party caption or personal data is committed here. The shape is the thing under test: microsecond timestamps, the item.clip.clip envelope and its flattened variant, item_type filtering, and a caption that carries the venues.",
+  "status": "ok",
+  "seq_id": 111222333,
+  "snapshot_at_ms": 1758331200000,
+  "inbox": {
+    "unseen_count": 2,
+    "threads": [
+      {
+        "thread_id": "340282366841710300949128169529111111111",
+        "users": [{ "pk": "17841400000000001", "username": "fixture_sender_one" }],
+        "items": [
+          {
+            "item_id": "31000000000000000000000000000001",
+            "user_id": "17841400000000001",
+            "timestamp": 1758330000000000,
+            "item_type": "clip",
+            "clip": {
+              "clip": {
+                "pk": "3500000000000000001",
+                "id": "3500000000000000001_17841400000000001",
+                "code": "FIXTURECODE01",
+                "product_type": "clips",
+                "video_duration": 20.4,
+                "location": null,
+                "user": { "pk": "17841400000000099", "username": "fixture_creator" },
+                "caption": {
+                  "pk": "18000000000000001",
+                  "text": "무더위에 어울리는 가상의 카페 3곳\n\n1.📍첫번째샘플카페 (Sample One) @fixture_cafe_one\n  서울 예시구 예시로1길 11\n🕰️매일 11:00-22:00\n📓샘플라떼 (4,800) 아메리카노 (4,200)\n\n2.📍두번째샘플카페 (Sample Two) @fixture_cafe_two\n  서울 예시구 예시로2길 22\n🕰️매일 12:00-23:00 월 휴무\n📓샘플티 (5,000)\n\n3.📍세번째샘플카페 (Sample Three) @fixture_cafe_three\n  서울 예시구 예시로3길 33\n🕰️화-일 10:30-21:00\n📓샘플케이크 (7,500)\n\n저장해두고 가보세요 🤍\n#가상카페 #예시태그 @fixture_creator"
+                }
+              }
+            }
+          },
+          {
+            "item_id": "31000000000000000000000000000002",
+            "user_id": "17841400000000001",
+            "timestamp": 1758330060000000,
+            "item_type": "text",
+            "text": "여기 한번 봐봐"
+          },
+          {
+            "item_id": "31000000000000000000000000000003",
+            "user_id": "17841499999999999",
+            "timestamp": 1758330120000000,
+            "item_type": "clip",
+            "clip": {
+              "clip": {
+                "pk": "3500000000000000003",
+                "code": "SELFSHARE003",
+                "product_type": "clips",
+                "caption": { "text": "우리 계정이 직접 보낸 릴 — 무시되어야 함" }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "thread_id": "340282366841710300949128169529222222222",
+        "users": [{ "pk": "17841400000000002", "username": "fixture_sender_two" }],
+        "items": [
+          {
+            "item_id": "31000000000000000000000000000004",
+            "user_id": "17841400000000002",
+            "timestamp": 1758300000000000,
+            "item_type": "clip",
+            "clip": {
+              "pk": "3500000000000000004",
+              "code": "FLATSHAPE004",
+              "product_type": "clips",
+              "caption": null
+            }
+          },
+          {
+            "item_id": "31000000000000000000000000000005",
+            "user_id": "17841400000000002",
+            "timestamp": 1758200000000000,
+            "item_type": "clip",
+            "clip": { "clip": { "product_type": "clips", "caption": { "text": "no code, no pk" } } }
+          },
+          {
+            "item_id": "31000000000000000000000000000006",
+            "user_id": "17841400000000002",
+            "timestamp": 1758100000000000,
+            "item_type": "clip",
+            "clip": {
+              "clip": {
+                "pk": "3500000000000000006",
+                "code": "OLDSHARE006",
+                "product_type": "clips",
+                "caption": { "text": "커서보다 오래된 공유" }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

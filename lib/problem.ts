@@ -16,6 +16,7 @@ export type ProblemCode =
   | 'magic-link-rate-limited'
   | 'recovery-channel-required'
   | 'email-already-linked'
+  | 'instagram-handle-taken'
   | 'idempotency-key-reuse'
   | 'invite-invalid'
   | 'invite-already-member'
@@ -28,6 +29,7 @@ export type ProblemCode =
   | 'oauth-email-required'
   | 'recommendation-failed'
   | 'recommendation-unavailable'
+  | 'ingest-breaker-tripped'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -39,6 +41,9 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'magic-link-rate-limited':  { status: 429, title: 'Too many requests',           detail: 'Too many link requests. Try again in a few minutes.' },
   'recovery-channel-required':{ status: 409, title: 'Recovery channel required',   detail: 'Removing this email would leave the account with no way to sign back in. Link Instagram first, or set a different email.' },
   'email-already-linked':     { status: 409, title: 'Email already linked',        detail: 'That address is already linked to another Gaja account.' },
+  // A typed handle is only a hint, so losing the race costs the second claimant
+  // nothing that was theirs — say so plainly rather than implying an accusation.
+  'instagram-handle-taken':   { status: 409, title: 'Instagram handle already claimed', detail: '다른 계정에서 이미 연결해 둔 인스타그램 아이디예요. 오타가 없는지 확인해 주시고, 본인 아이디가 맞다면 비워둔 채로 넘어가셔도 괜찮아요.' },
   'idempotency-key-reuse':    { status: 409, title: 'Idempotency key reused',      detail: 'This Idempotency-Key was already used with a different request body. Generate a new key.' },
   'invite-invalid':           { status: 400, title: 'Invite no longer valid',      detail: 'This invite has expired or was already used. Ask for a new one.' },
   'invite-already-member':    { status: 409, title: 'Already a member',            detail: 'You are already in this group.' },
@@ -51,6 +56,11 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'oauth-email-required':     { status: 409, title: 'Email permission required',  detail: 'Gaja needs your email address so you can always get back in. Allow email access and try again.' },
   'recommendation-failed':    { status: 422, title: 'No valid course found',       detail: 'The recommendation could not satisfy every required constraint.' },
   'recommendation-unavailable': { status: 503, title: 'Recommendation unavailable', detail: 'The recommendation service is temporarily unavailable.' },
+  // Not a transient 503: nothing retries out of this state. The Instagram
+  // poller stopped because Instagram challenged it, and it stays stopped until a
+  // person clears the challenge and resets ingest_state by hand. Retry-After
+  // would be a lie, so the route does not send one.
+  'ingest-breaker-tripped':   { status: 503, title: 'Ingestion halted',            detail: 'Reel ingestion has stopped and will not resume until it is reset by hand.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 

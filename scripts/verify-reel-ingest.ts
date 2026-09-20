@@ -1,0 +1,208 @@
+/**
+ * The assertions for scripts/verify-reel-ingest.sh. Run it, not this — the shell
+ * script is what holds the localhost rail, and this file writes and deletes rows
+ * by igsid with no rail of its own.
+ *
+ * Everything here goes through lib/ingest/*, never through hand-written SQL that
+ * mirrors it, so a test can only pass by the real write path doing the real
+ * thing. The SQL below reads and cleans up; it never writes what saveReel writes.
+ */
+import { pool, query, queryOne } from '../lib/db';
+import { resolveSenderToUser } from '../lib/ingest/route-sender';
+import { saveReel } from '../lib/ingest/save-reel';
+
+// Distinctive enough to delete by, and app-scoped nonsense by construction: an
+// igsid from a real Meta app would be digits. See the app-scoping note in
+// docs/gaja/instagram-binding.md — these values mean nothing anywhere else.
+const IGSID = 'verify-reel-ingest-sender';
+const UNKNOWN_IGSID = 'verify-reel-ingest-nobody';
+const REEL = 'verify-reel-ingest-video-1';
+
+let failures = 0;
+
+function ok(what: string, pass: boolean, detail = '') {
+  if (pass) {
+    console.log(`  ok   ${what}`);
+  } else {
+    failures += 1;
+    console.log(`  ✗    ${what}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+function eq<T>(what: string, got: T, want: T) {
+  ok(what, Object.is(got, want), `got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
+}
+
+const extraction = (places: { ordinal: number; name: string }[], confidence: 'low' | 'medium' | 'high') => ({
+  places: places.map((p) => ({
+    ordinal: p.ordinal,
+    name: p.name,
+    name_alt: null,
+    handle: null,
+    address: null,
+    hours_raw: null,
+    menu_raw: null,
+  })),
+  title: '성수 카페 3곳',
+  confidence,
+  model: 'verify-fixture',
+  ms: 0,
+});
+
+async function countReels(userId: string) {
+  const r = await queryOne<{ n: string }>(`select count(*) as n from reels where user_id = $1`, [userId]);
+  return Number(r!.n);
+}
+
+async function ordinalsFor(reelId: string) {
+  const rows = await query<{ ordinal: number }>(
+    `select ordinal from saved_places where reel_id = $1 order by ordinal`,
+    [reelId],
+  );
+  return rows.map((r) => r.ordinal);
+}
+
+async function main() {
+  // Re-runnable: the fixture account is deleted and recreated, and everything
+  // downstream of it — reels, saved places — goes with it by ON DELETE CASCADE.
+  await query(`delete from users where igsid = any($1::text[])`, [[IGSID, UNKNOWN_IGSID]]);
+  const user = await queryOne<{ id: string }>(
+    `insert into users (display_name, igsid) values ('verify-reel-ingest', $1) returning id`,
+    [IGSID],
+  );
+  const userId = user!.id;
+
+  console.log('\n1 — a reel with three place candidates');
+  const routed = await resolveSenderToUser(IGSID);
+  ok('resolveSenderToUser finds the account by igsid', routed?.userId === userId);
+
+  const first = await saveReel({
+    userId,
+    reelVideoId: REEL,
+    sourceUrl: 'https://www.instagram.com/reel/verify/',
+    rawCaption: '1.어니언 2.자그마치 3.대림창고',
+    extraction: extraction(
+      [
+        { ordinal: 1, name: '어니언 성수' },
+        { ordinal: 2, name: '자그마치' },
+        { ordinal: 3, name: '대림창고' },
+      ],
+      'high',
+    ),
+  });
+  eq('alreadyExisted', first.alreadyExisted, false);
+  eq('one reel row', await countReels(userId), 1);
+  eq('three saved_places', first.savedPlaceIds.length, 3);
+  ok('ordinals are 1,2,3', JSON.stringify(await ordinalsFor(first.reelId)) === '[1,2,3]');
+
+  const reel = await queryOne<{ status: string; extracted: { places: unknown[] } | null }>(
+    `select status, extracted from reels where id = $1`,
+    [first.reelId],
+  );
+  eq("status is 'extracted'", reel!.status, 'extracted');
+  eq('the full extraction is stored', reel!.extracted?.places.length, 3);
+
+  // place_id null is the stated state, not an oversight: nothing resolves a
+  // caption name to a canonical place yet. If that changes, this assertion is
+  // the one that should be rewritten first.
+  const unresolved = await queryOne<{ n: string }>(
+    `select count(*) as n from saved_places
+      where reel_id = $1 and place_id is null and status = 'pending' and confirmed = false`,
+    [first.reelId],
+  );
+  eq('rows are pending, unconfirmed, unresolved', Number(unresolved!.n), 3);
+
+  console.log('\n2 — the same reel again (a poller sees every DM twice)');
+  const second = await saveReel({
+    userId,
+    reelVideoId: REEL,
+    sourceUrl: 'https://www.instagram.com/reel/verify/',
+    rawCaption: '1.어니언 2.자그마치 3.대림창고',
+    extraction: extraction([{ ordinal: 1, name: '어니언 성수' }], 'high'),
+  });
+  eq('alreadyExisted', second.alreadyExisted, true);
+  eq('same reel id', second.reelId, first.reelId);
+  eq('still one reel row', await countReels(userId), 1);
+  ok('still 1,2,3 — the redelivery did not rewrite them',
+    JSON.stringify(await ordinalsFor(first.reelId)) === '[1,2,3]');
+  ok('the same saved_places come back',
+    JSON.stringify(second.savedPlaceIds) === JSON.stringify(first.savedPlaceIds));
+
+  console.log('\n3 — a reel from an igsid nobody owns');
+  const reelsBefore = await queryOne<{ n: string }>(`select count(*) as n from reels`);
+  const stranger = await resolveSenderToUser(UNKNOWN_IGSID);
+  eq('resolveSenderToUser returns null', stranger, null);
+  const reelsAfter = await queryOne<{ n: string }>(`select count(*) as n from reels`);
+  eq('nothing was written', reelsAfter!.n, reelsBefore!.n);
+
+  console.log('\n4 — extraction outcomes the caller has to distinguish');
+  const noPlaces = await saveReel({
+    userId, reelVideoId: `${REEL}-empty`, sourceUrl: null, rawCaption: '여행 브이로그',
+    extraction: extraction([], 'high'),
+  });
+  eq('zero places → needs_review', await statusOf(noPlaces.reelId), 'needs_review');
+  eq('zero places → no saved_places', noPlaces.savedPlaceIds.length, 0);
+
+  const unsure = await saveReel({
+    userId, reelVideoId: `${REEL}-low`, sourceUrl: null, rawCaption: '어디였더라',
+    extraction: extraction([{ ordinal: 1, name: '아마도 성수' }], 'low'),
+  });
+  eq('low confidence → needs_review', await statusOf(unsure.reelId), 'needs_review');
+  eq('low confidence still saves the candidate', unsure.savedPlaceIds.length, 1);
+
+  const broken = await saveReel({
+    userId, reelVideoId: `${REEL}-null`, sourceUrl: null, rawCaption: null, extraction: null,
+  });
+  eq('no extraction → failed', await statusOf(broken.reelId), 'failed');
+  eq('no extraction → no saved_places', broken.savedPlaceIds.length, 0);
+
+  console.log('\n5 — a reel that cannot be written completely is not written at all');
+  // Two venues claiming position 3 violates `saved_places_reel_ordinal_idx`, which
+  // fires AFTER the reel row is inserted. If the write were not one transaction
+  // the reel would survive with a truncated list and status 'extracted' — the
+  // exact half-written listicle the parent row exists to make impossible.
+  const clash = `${REEL}-clash`;
+  let threw = false;
+  try {
+    await saveReel({
+      userId, reelVideoId: clash, sourceUrl: null, rawCaption: '3.어니언 3.자그마치',
+      extraction: extraction(
+        [{ ordinal: 3, name: '어니언 성수' }, { ordinal: 3, name: '자그마치' }],
+        'high',
+      ),
+    });
+  } catch {
+    threw = true;
+  }
+  ok('a duplicate ordinal is refused, not silently dropped', threw);
+  const rolled = await queryOne<{ n: string }>(
+    `select count(*) as n from reels where user_id = $1 and reel_video_id = $2`,
+    [userId, clash],
+  );
+  eq('the reel row rolled back with its places', Number(rolled!.n), 0);
+
+  console.log('\n6 — deleting the reel takes its saved places with it');
+  await query(`delete from reels where id = $1`, [first.reelId]);
+  const orphans = await queryOne<{ n: string }>(
+    `select count(*) as n from saved_places where id = any($1::uuid[])`,
+    [first.savedPlaceIds],
+  );
+  eq('saved_places cascaded away', Number(orphans!.n), 0);
+
+  await query(`delete from users where id = $1`, [userId]);
+  console.log(failures === 0 ? '\nall assertions passed\n' : `\n${failures} assertion(s) failed\n`);
+}
+
+async function statusOf(reelId: string) {
+  const r = await queryOne<{ status: string }>(`select status from reels where id = $1`, [reelId]);
+  return r!.status;
+}
+
+main()
+  .then(() => pool.end())
+  .then(() => process.exit(failures === 0 ? 0 : 1))
+  .catch(async (e) => {
+    console.error(e);
+    await pool.end();
+    process.exit(1);
+  });

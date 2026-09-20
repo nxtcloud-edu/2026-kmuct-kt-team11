@@ -19,7 +19,8 @@ const Body = z.object({
   intent: z.enum(['sign_up', 'sign_in']),
 });
 
-const USER_COLUMNS = `id, display_name, avatar_url, email, email_verified_at, igsid, locale,
+const USER_COLUMNS = `id, display_name, avatar_url, email, email_verified_at, igsid,
+                      instagram_handle, locale,
                       home_area, profile_visible_in_groups, plan,
                       gender, age_band, mbti, onboarded_at`;
 

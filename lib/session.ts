@@ -16,6 +16,10 @@ export type SessionUser = {
   email: string | null;
   email_verified_at: Date | null;
   igsid: string | null;
+  // A HINT the user typed, never proof. `igsid` is the binding and it only ever
+  // comes from a webhook payload Meta signed; this column comes from a text
+  // field. docs/gaja/instagram-binding.md is the rule these two obey.
+  instagram_handle: string | null;
   locale: 'ko' | 'en';
   home_area: string | null;
   profile_visible_in_groups: boolean;
@@ -38,7 +42,8 @@ export async function currentUser(): Promise<SessionUser | null> {
 
   return queryOne<SessionUser>(
     `select u.id, u.display_name, u.avatar_url, u.email, u.email_verified_at,
-            u.igsid, u.locale, u.home_area, u.profile_visible_in_groups, u.plan,
+            u.igsid, u.instagram_handle, u.locale, u.home_area,
+            u.profile_visible_in_groups, u.plan,
             u.gender, u.age_band, u.mbti, u.onboarded_at
        from sessions s
        join users u on u.id = s.user_id
@@ -96,6 +101,10 @@ export function toMe(u: SessionUser) {
     avatar_url: u.avatar_url,
     email: u.email,
     email_verified: u.email_verified_at !== null,
+    instagram_handle: u.instagram_handle,
+    // Still derived from igsid, not from the handle and not from a second
+    // column. `instagram_linked: true` is a claim that Meta told us who this
+    // person is; nothing a user can type may ever flip it.
     instagram_linked: u.igsid !== null,
     locale: u.locale,
     home_area: u.home_area,

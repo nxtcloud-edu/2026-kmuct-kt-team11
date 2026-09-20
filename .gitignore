@@ -39,6 +39,10 @@ media/
 *.tsbuildinfo
 .DS_Store
 .env*
+# Re-negated AFTER the `.env*` above, not only after `.env.*` near the top of this
+# file. A negation cannot survive a later broader match, so the `!.env.example` in
+# the secrets block was silently overridden by this Next.js default block and the
+# example file was uncommittable. Order matters here; do not move this line up.
 !.env.example
 .pnp.*
 .pnpm-debug.log*
