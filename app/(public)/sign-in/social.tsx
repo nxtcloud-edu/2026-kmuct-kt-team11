@@ -1,26 +1,24 @@
 /**
  * Social sign-in entry points.
  *
- * Plain links, not buttons with onClick: starting OAuth is a navigation, and a
- * link works before hydration, survives a middle-click, and needs no JS. The
- * server route does the PKCE work.
+ * Renders nothing unless a Supabase project is configured. Until then the
+ * sign-in screen is email only, which is the honest state: a button that always
+ * lands on an error page is worse than no button.
  *
- * Kakao first. This is a Seoul product and Kakao is how most Korean users expect
- * to sign in; Google is the fallback for everyone else. The order is the
- * recommendation — the first item in a short list is the one people take.
+ * Plain links, not buttons with onClick: starting OAuth is a navigation, so a
+ * link works before hydration and survives a middle-click. The server route does
+ * the PKCE work.
  *
- * Neither gets a brand colour. `.agents/visual-language.md` allows no accent and
- * reserves the only saturated value for `danger`, so these read as the same
- * pill as every other control and are told apart by their label.
+ * No brand colour or logo. `.agents/visual-language.md` allows no accent and
+ * reserves the only saturated value for `danger`, so this is the same pill as
+ * every other control, told apart by its label.
  */
 import Link from 'next/link';
-
-const PROVIDERS = [
-  { id: 'kakao', label: '카카오로 계속하기' },
-  { id: 'google', label: 'Google로 계속하기' },
-] as const;
+import { socialSignInConfigured } from '@/lib/supabase';
 
 export function SocialSignIn({ next }: { next?: string | null }) {
+  if (!socialSignInConfigured()) return null;
+
   const qs = next ? `?next=${encodeURIComponent(next)}` : '';
 
   return (
@@ -31,20 +29,15 @@ export function SocialSignIn({ next }: { next?: string | null }) {
         <span className="h-px flex-1 bg-hairline" />
       </div>
 
-      <div className="mt-4 flex flex-col gap-2">
-        {PROVIDERS.map((p) => (
-          <Link
-            key={p.id}
-            href={`/api/auth/oauth/${p.id}${qs}`}
-            prefetch={false}
-            className="inline-flex items-center justify-center rounded-pill bg-surface-1 px-5 py-2.5
-                       text-base shadow-control transition-colors duration-200 ease-standard
-                       hover:bg-fill"
-          >
-            {p.label}
-          </Link>
-        ))}
-      </div>
+      <Link
+        href={`/api/auth/oauth/google${qs}`}
+        prefetch={false}
+        className="mt-4 inline-flex w-full items-center justify-center rounded-pill bg-surface-1
+                   px-5 py-2.5 text-base shadow-control transition-colors duration-200
+                   ease-standard hover:bg-fill"
+      >
+        Google로 계속하기
+      </Link>
     </div>
   );
 }

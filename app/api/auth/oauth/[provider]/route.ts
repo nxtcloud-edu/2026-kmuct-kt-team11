@@ -36,9 +36,6 @@ export async function GET(
       options: {
         redirectTo: callback.toString(),
         skipBrowserRedirect: true,
-        // Kakao returns an email only when the scope is granted, and an account
-        // with no email cannot satisfy users_recovery_channel_required.
-        ...(provider === 'kakao' ? { scopes: 'account_email profile_nickname' } : {}),
       },
     });
     if (error || !data?.url) return fail('oauth_start_failed');

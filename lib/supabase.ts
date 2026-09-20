@@ -43,9 +43,22 @@ export async function supabaseAuthClient() {
   });
 }
 
-export const SOCIAL_PROVIDERS = ['google', 'kakao'] as const;
+/**
+ * Only Google. The auth_identities CHECK still permits 'kakao' and 'apple', so
+ * adding one later is a change here and in the sign-in UI — no migration.
+ */
+export const SOCIAL_PROVIDERS = ['google'] as const;
 export type SocialProvider = (typeof SOCIAL_PROVIDERS)[number];
 
 export function isSocialProvider(v: string): v is SocialProvider {
   return (SOCIAL_PROVIDERS as readonly string[]).includes(v);
+}
+
+/**
+ * Whether social sign-in is usable at all. The sign-in screen hides the buttons
+ * when this is false, so an unconfigured deployment shows email only rather than
+ * offering a route that dead-ends in an error.
+ */
+export function socialSignInConfigured(): boolean {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY);
 }
