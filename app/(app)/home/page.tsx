@@ -139,7 +139,16 @@ export default async function HomePage() {
       {saved.length > 0 ? (
         <Link
           href="/add"
-          className="mt-[var(--section-gap)] inline-flex min-h-[var(--tap-min)] items-center text-ink"
+          /* `--space-9`, NOT `--section-gap`. A full section gap above AND the
+             deck's own gap below left this one line of text floating in ~100px
+             of empty screen, reading as a section of its own rather than as an
+             action belonging to the question above it. Law of Uniform
+             Connectedness: it is about getting places IN, which is what
+             `오늘 어디 가볼까요?` is asking, so it binds upward to the header and
+             lets the deck's `--space-15` be the only real break on the screen.
+             The 44px tap target stays — the air inside it is the thumb's, not
+             the layout's. */
+          className="mt-[var(--space-9)] inline-flex min-h-[var(--tap-min)] items-center text-ink"
           style={{ font: 'var(--type-meta)' }}
         >
           릴스 주소로 저장하기 ›
