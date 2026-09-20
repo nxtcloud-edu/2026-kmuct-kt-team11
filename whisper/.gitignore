@@ -1,0 +1,14 @@
+node_modules/
+
+# Next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Secrets
+.env
+.env.local
+
+# H7: scraped reel media is never committed — it is third-party copyrighted video.
+/.cache/reels/

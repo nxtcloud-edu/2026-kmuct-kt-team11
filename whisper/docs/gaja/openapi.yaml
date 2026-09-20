@@ -1,0 +1,912 @@
+openapi: 3.1.0
+info:
+  title: Gaja API — slice 1 (Spine)
+  version: "1.0.0-slice1"
+  description: |
+    Identity, groups, places and hand-entered saved places.
+    No Instagram, no scraping, no planning pipeline — those are slices 2 and 3.
+
+    **Versioning promise: none.** Single first-party consumer (the Next.js app), changed in
+    the same commit as its caller. There is deliberately no `/v1/` path segment.
+    See `api-contract.md` §1 for the reversal condition.
+  contact:
+    name: Gaja
+    url: https://gaja.app
+  license:
+    name: UNLICENSED
+    url: https://gaja.app/terms
+
+servers:
+  - url: /api
+    description: Same-origin Next.js route handlers
+
+security:
+  - sessionCookie: []
+
+tags:
+  - name: auth
+    description: Magic-link sign-in and channel linking (D3 dual semantics).
+  - name: me
+    description: The signed-in user and their recovery channels.
+  - name: groups
+    description: Groups, membership and invites. A date itinerary is a two-person artifact (D5).
+  - name: places
+    description: Canonical place records. Dedupe happens at the write boundary (spec 5.1).
+  - name: saved-places
+    description: What a user has saved, personally or into a group. The only surface ingestion shares.
+
+paths:
+  /auth/magic-link:
+    post:
+      operationId: requestMagicLink
+      tags: [auth]
+      summary: Request a magic link
+      description: |
+        Always returns 202, even for an unknown address — a 404 on unknown emails is an
+        account-enumeration oracle. `intent: link` requires an existing session.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, intent]
+              properties:
+                email: { type: string, format: email }
+                intent: { type: string, enum: [sign_in, link] }
+      responses:
+        '202':
+          description: Link sent, or silently not sent for an unknown address
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [sent] }
+              example: { status: sent }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/MagicLinkRateLimited' }
+
+  /auth/session:
+    post:
+      operationId: createSession
+      tags: [auth]
+      summary: Exchange a magic-link token for a session
+      description: |
+        Dual semantics. No session cookie present → sign in. Session cookie present → link
+        the token's channel to the signed-in account. Tokens are single-use, 15 minute expiry.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, examples: ["mlt_01JBQ7X2K9ZQ8V3N5M6P7R8S9T"] }
+      responses:
+        '200':
+          description: Signed in or linked
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+              description: '`__Host-gaja_session`; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user, outcome]
+                properties:
+                  user: { $ref: '#/components/schemas/Me' }
+                  outcome: { type: string, enum: [signed_in, linked] }
+        '400': { $ref: '#/components/responses/MagicLinkInvalid' }
+        '409': { $ref: '#/components/responses/EmailAlreadyLinked' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/MagicLinkRateLimited' }
+    delete:
+      operationId: deleteSession
+      tags: [auth]
+      summary: Sign out
+      responses:
+        '204': { description: Session revoked server-side and cookie cleared }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /me:
+    get:
+      operationId: getMe
+      tags: [me]
+      summary: The signed-in user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    patch:
+      operationId: updateMe
+      tags: [me]
+      summary: Update profile
+      description: Unknown fields are ignored, not rejected, so the client may send its whole model.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string, minLength: 1, maxLength: 120 }
+                locale: { type: string, enum: [ko, en] }
+                home_area: { type: string, maxLength: 80 }
+                profile_visible_in_groups: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /me/email:
+    delete:
+      operationId: deleteMyEmail
+      tags: [me]
+      summary: Remove the email recovery channel
+      description: |
+        Rejected with 409 when it is the last recovery channel. This is
+        `CHECK (igsid IS NOT NULL OR email IS NOT NULL)` (D3) surfaced as a product rule.
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { $ref: '#/components/responses/RecoveryChannelRequired' }
+
+  /groups:
+    get:
+      operationId: listGroups
+      tags: [groups]
+      summary: List the caller's groups
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/GroupSummary' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    post:
+      operationId: createGroup
+      tags: [groups]
+      summary: Create a group
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '201':
+          description: Created; caller becomes owner
+          headers:
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { $ref: '#/components/responses/IdempotencyKeyReuse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /groups/{group_id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      operationId: getGroup
+      tags: [groups]
+      summary: One group with its members
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotGroupMember' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateGroup
+      tags: [groups]
+      summary: Rename a group (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Group' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      operationId: deleteGroup
+      tags: [groups]
+      summary: Delete a group (owner only)
+      description: |
+        Saved places are **not** deleted — their `group_id` is set to null and they revert
+        to personal.
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /groups/{group_id}/invites:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      operationId: createGroupInvite
+      tags: [groups]
+      summary: Create an invite (any member)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Created
+          headers:
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, url, expires_at]
+                properties:
+                  token: { type: string }
+                  url: { type: string, format: uri }
+                  expires_at: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotGroupMember' }
+        '409': { $ref: '#/components/responses/IdempotencyKeyReuse' }
+
+  /groups/{group_id}/members/{user_id}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+      - name: user_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: removeGroupMember
+      tags: [groups]
+      summary: Leave a group, or remove a member (owner only)
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LastOwner' }
+
+  /invites/{token}/accept:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: acceptInvite
+      tags: [groups]
+      summary: Accept a group invite
+      description: |
+        Two branches. Without a session the response asks for a recovery channel and returns
+        only the group's name — an invite joiner has no `igsid`, so an email is the only thing
+        that can satisfy the D3 CHECK constraint. With a session, the caller joins.
+      security: []
+      responses:
+        '200':
+          description: Joined, or a recovery channel is required first
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InviteJoined'
+                  - $ref: '#/components/schemas/InviteNeedsRecovery'
+        '400': { $ref: '#/components/responses/InviteInvalid' }
+        '409': { $ref: '#/components/responses/InviteAlreadyMember' }
+        '429': { $ref: '#/components/responses/MagicLinkRateLimited' }
+
+  /places/search:
+    get:
+      operationId: searchPlaces
+      tags: [places]
+      summary: Search existing places before creating one
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1 } }
+        - { name: near_lat, in: query, schema: { type: number, format: double } }
+        - { name: near_lng, in: query, schema: { type: number, format: double } }
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/PlaceSearchResult' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /places:
+    post:
+      operationId: createPlace
+      tags: [places]
+      summary: Create a place by hand
+      description: |
+        Dedupe at the write boundary. A create whose coordinates are within ~50 m of an
+        existing row with a similar name returns **200** with that row and `matched: true`,
+        not a new row (spec §5.1).
+
+        `area` is client-supplied and required in slice 1 — there is no geocoder until
+        slice 2 adds the Kakao adapter. Slice 2 makes it optional and server-resolves it.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, category, lat, lng, area]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                name_alt: { type: array, items: { type: string } }
+                category: { $ref: '#/components/schemas/PlaceCategory' }
+                lat: { type: number, format: double, minimum: -90, maximum: 90 }
+                lng: { type: number, format: double, minimum: -180, maximum: 180 }
+                address: { type: string, maxLength: 300 }
+                area: { type: string, minLength: 1, maxLength: 80 }
+      responses:
+        '200':
+          description: Matched an existing place; nothing was created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Place'
+                  - type: object
+                    required: [matched]
+                    properties:
+                      matched: { type: boolean, const: true }
+        '201':
+          description: Created
+          headers:
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Place' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '409': { $ref: '#/components/responses/IdempotencyKeyReuse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /saved-places:
+    get:
+      operationId: listSavedPlaces
+      tags: [saved-places]
+      summary: List saved places
+      parameters:
+        - name: group_id
+          in: query
+          description: Omit for personal only; a group id for that group; `all` for both.
+          schema:
+            type: string
+            pattern: '^(all|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'
+        - name: status
+          in: query
+          description: Repeatable. Default is everything except `rejected`.
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/SavedPlaceStatus' }
+          style: form
+          explode: true
+        - name: confirmed
+          in: query
+          description: '`false` is the 확인 필요 filter.'
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Page'
+                  - type: object
+                    required: [data]
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/SavedPlace' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotGroupMember' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      operationId: createSavedPlace
+      tags: [saved-places]
+      summary: Save a place by hand
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [place_id]
+              properties:
+                place_id: { type: string, format: uuid }
+                group_id:
+                  oneOf:
+                    - { type: string, format: uuid }
+                    - { type: 'null' }
+                hook: { type: string, maxLength: 200 }
+      responses:
+        '201':
+          description: Saved
+          headers:
+            Idempotency-Replayed: { $ref: '#/components/headers/IdempotencyReplayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedPlace' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotGroupMember' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/DuplicateSavedPlace' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /saved-places/{saved_place_id}:
+    parameters:
+      - name: saved_place_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getSavedPlace
+      tags: [saved-places]
+      summary: One saved place
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedPlace' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateSavedPlace
+      tags: [saved-places]
+      summary: Confirm, move between personal and a group, or edit the hook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirmed: { type: boolean, description: 'true clears the 확인 필요 badge' }
+                group_id:
+                  description: Requires membership of the target group.
+                  oneOf:
+                    - { type: string, format: uuid }
+                    - { type: 'null' }
+                hook: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SavedPlace' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      operationId: deleteSavedPlace
+      tags: [saved-places]
+      summary: Remove a saved place
+      description: |
+        Hard delete in slice 1. Becomes a `rejected` status transition once
+        `preference_signals` exists (slice 4) — a deletion is itself a preference signal.
+      responses:
+        '204': { description: Deleted }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-gaja_session
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Default 30, maximum 100. Values above the cap are clamped, not rejected.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque. Clients MUST NOT parse it.
+      schema: { type: string }
+    GroupId:
+      name: group_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        Client-generated UUIDv7, reused across retries of one user intent. 24-hour retention.
+        Same key + same body replays the original response; same key + different body is 409.
+        `Idempotency-Key` is an IETF draft, not a ratified RFC — this is a documented convention.
+      schema: { type: string, format: uuid }
+
+  headers:
+    IdempotencyReplayed:
+      description: Present and true when this response was replayed from the idempotency store.
+      schema: { type: boolean }
+    RetryAfter:
+      description: Seconds until the caller may retry.
+      schema: { type: integer }
+
+  schemas:
+    PlaceCategory:
+      type: string
+      enum: [cafe, restaurant, exhibition, shop, activity]
+
+    SavedPlaceStatus:
+      type: string
+      enum: [pending, resolved, needs_review, rejected]
+
+    Page:
+      type: object
+      required: [has_more]
+      properties:
+        next_cursor:
+          description: Null when has_more is false.
+          oneOf:
+            - { type: string }
+            - { type: 'null' }
+        has_more: { type: boolean }
+
+    Me:
+      type: object
+      required: [id, display_name, locale, plan, recovery_channels, instagram_linked, email_verified, profile_visible_in_groups]
+      properties:
+        id: { type: string, format: uuid }
+        display_name: { type: string }
+        avatar_url:
+          oneOf: [{ type: string, format: uri }, { type: 'null' }]
+        email:
+          oneOf: [{ type: string, format: email }, { type: 'null' }]
+        email_verified: { type: boolean }
+        instagram_linked:
+          type: boolean
+          description: The boolean the UI needs. `igsid` itself is never returned.
+        locale: { type: string, enum: [ko, en] }
+        home_area:
+          oneOf: [{ type: string }, { type: 'null' }]
+        profile_visible_in_groups: { type: boolean }
+        plan: { type: string, enum: [free] }
+        recovery_channels:
+          type: array
+          description: Lets the client render the D3 rule without inferring it from nullable fields.
+          items: { type: string, enum: [instagram, email] }
+
+    GroupSummary:
+      type: object
+      required: [id, name, member_count, role]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        member_count: { type: integer, minimum: 1 }
+        role: { type: string, enum: [owner, member] }
+
+    GroupMember:
+      type: object
+      required: [user_id, display_name, role, joined_at]
+      properties:
+        user_id: { type: string, format: uuid }
+        display_name: { type: string }
+        avatar_url:
+          oneOf: [{ type: string, format: uri }, { type: 'null' }]
+        role: { type: string, enum: [owner, member] }
+        joined_at: { type: string, format: date-time }
+
+    Group:
+      type: object
+      required: [id, name, role, members, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role: { type: string, enum: [owner, member] }
+        members:
+          type: array
+          items: { $ref: '#/components/schemas/GroupMember' }
+        created_at: { type: string, format: date-time }
+
+    InviteJoined:
+      type: object
+      required: [group, role]
+      properties:
+        group: { $ref: '#/components/schemas/GroupSummary' }
+        role: { type: string, enum: [member] }
+
+    InviteNeedsRecovery:
+      type: object
+      required: [requires, group]
+      description: |
+        Returned to an unauthenticated caller. Carries the group name only — enough to decide
+        whether to hand over an email address, and nothing more.
+      properties:
+        requires: { type: string, const: recovery_channel }
+        group:
+          type: object
+          required: [id, name, member_count]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            member_count: { type: integer }
+
+    Place:
+      type: object
+      required: [id, name, category, lat, lng, area]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        name_alt: { type: array, items: { type: string } }
+        category: { $ref: '#/components/schemas/PlaceCategory' }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        address:
+          oneOf: [{ type: string }, { type: 'null' }]
+        area: { type: string }
+
+    PlaceSearchResult:
+      allOf:
+        - $ref: '#/components/schemas/Place'
+        - type: object
+          properties:
+            distance_m:
+              description: Present only when near_lat and near_lng were supplied.
+              oneOf: [{ type: number }, { type: 'null' }]
+
+    SavedPlace:
+      type: object
+      required: [id, place, group_id, status, confirmed, saved_at]
+      properties:
+        id: { type: string, format: uuid }
+        place:
+          description: Null while status is `pending` — the row exists before resolution by design.
+          oneOf:
+            - $ref: '#/components/schemas/Place'
+            - { type: 'null' }
+        group_id:
+          oneOf: [{ type: string, format: uuid }, { type: 'null' }]
+        status: { $ref: '#/components/schemas/SavedPlaceStatus' }
+        confirmed:
+          type: boolean
+          description: false renders the 확인 필요 badge.
+        hook:
+          oneOf: [{ type: string }, { type: 'null' }]
+        source_url:
+          oneOf: [{ type: string, format: uri }, { type: 'null' }]
+        saved_at: { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: RFC 9457 problem details. Clients branch on `type`, never on `detail`.
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        request_id:
+          type: string
+          description: Correlation handle. Internals are never leaked into `detail`.
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+  responses:
+    Unauthenticated:
+      description: No session, or it expired
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/unauthenticated
+            title: Unauthenticated
+            status: 401
+            detail: Sign in to continue.
+    Forbidden:
+      description: Authenticated but not permitted on this object
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/forbidden
+            title: Forbidden
+            status: 403
+            detail: You do not have permission to change this.
+    NotFound:
+      description: Does not exist, or exists and the caller may not know that
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/not-found
+            title: Not Found
+            status: 404
+            detail: No such record.
+    ValidationError:
+      description: Body failed schema validation
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/validation-error
+            title: Validation Error
+            status: 422
+            detail: One or more fields are invalid.
+            errors:
+              - field: name
+                message: Must be 1–120 characters.
+    MagicLinkInvalid:
+      description: Token malformed, expired, or already used
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/magic-link-invalid
+            title: Link no longer valid
+            status: 400
+            detail: This link has expired or was already used. Request a new one.
+    MagicLinkRateLimited:
+      description: Too many attempts
+      headers:
+        Retry-After: { $ref: '#/components/headers/RetryAfter' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/magic-link-rate-limited
+            title: Too many requests
+            status: 429
+            detail: Too many link requests. Try again in a few minutes.
+    RecoveryChannelRequired:
+      description: The change would leave the account with no way to sign back in
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/recovery-channel-required
+            title: Recovery channel required
+            status: 409
+            detail: Removing this email would leave the account with no way to sign back in. Link Instagram first, or set a different email.
+    EmailAlreadyLinked:
+      description: That email belongs to another account
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/email-already-linked
+            title: Email already linked
+            status: 409
+            detail: That address is already linked to another Gaja account.
+    IdempotencyKeyReuse:
+      description: Same Idempotency-Key, different request body
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/idempotency-key-reuse
+            title: Idempotency key reused
+            status: 409
+            detail: This Idempotency-Key was already used with a different request body. Generate a new key.
+    InviteInvalid:
+      description: Invite expired or already used
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/invite-invalid
+            title: Invite no longer valid
+            status: 400
+            detail: This invite has expired or was already used. Ask for a new one.
+    InviteAlreadyMember:
+      description: Caller already belongs to that group
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/invite-already-member
+            title: Already a member
+            status: 409
+            detail: You are already in this group.
+    NotGroupMember:
+      description: Caller is not a member of the target group
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/not-group-member
+            title: Not a group member
+            status: 403
+            detail: You are not a member of this group.
+    LastOwner:
+      description: Would leave the group with no owner
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/last-owner
+            title: Group would have no owner
+            status: 409
+            detail: Make someone else an owner before leaving.
+    DuplicateSavedPlace:
+      description: This place is already saved in this scope
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          example:
+            type: https://gaja.app/errors/duplicate-saved-place
+            title: Already saved
+            status: 409
+            detail: You already saved this place here.
