@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gaja
 
-## Getting Started
+Instagram reels → a planned day in Seoul. Save places from reels, and the planner
+builds a time-ordered itinerary that is actually open when you get there.
 
-First, run the development server:
+## Status
+
+Built in vertical slices (`docs/superpowers/specs/2026-09-18-gaja-design.md` §14).
+
+| Slice | What | State |
+|---|---|---|
+| 1 — Spine | auth, groups, places, hand-entered saved places | API complete · frontend scaffolded |
+| 2 — Pipeline | PlaceSource, research, planning, validation, repair loop | not started |
+| 3 — Ingestion | IG webhook, extraction ladder, admin review queue | not started |
+| 4 — Personalization | preference signals, planner attribution | not started |
+
+Slice 1's screens are deliberately minimal. The IA and screen specs belong to step 4
+of `.agents/run-order.md` (`product-designer`), which has not run — what exists is the
+chassis, not the design.
+
+## Running it
+
+Needs Node 20+, Docker (for local Postgres), and the Supabase CLI.
 
 ```bash
+npm install
+supabase start                  # Postgres on :54322
+psql "$DATABASE_URL" -f supabase/migrations/20260918000001_slice1_spine.sql
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`.env.local` holds the local defaults and is committed on purpose — they are the
+documented Supabase local values, not secrets.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Magic links are not emailed in development; they are printed to the dev server
+console. See `lib/mail.ts` — no provider is chosen yet, and slice 1 cannot send
+mail in production until one is.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Verifying
 
-## Learn More
+```bash
+npm run build && npm run lint
+```
 
-To learn more about Next.js, take a look at the following resources:
+The backend has a 40-case suite covering object-level authorization, idempotency
+replay, the recovery-channel constraint and the duplicate-save index. It drives the
+real HTTP routes, so it needs the dev server and Postgres both up:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx next dev > /tmp/gaja-dev.log 2>&1 & bash scripts/smoke.sh
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+It reads magic-link tokens out of that log, which is why `DEV_LOG` has to point at
+wherever the server is writing.
 
-## Deploy on Vercel
+To browse real data, `bash scripts/seed-prototype.sh` signs in a fixture user and
+creates 13 saved places across three Seoul areas.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Layout
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+app/(public)/     signed-out: sign-in, magic-link callback
+app/(app)/        signed-in: auth-gated in layout.tsx, wrapped in the app shell
+app/api/          13 route handlers — the contract in docs/gaja/openapi.yaml
+app/prototype/    throwaway direction prototype; delete once its finding lands
+components/       surface primitives and the UI-state set
+lib/              db, session, problems, pagination, idempotency
+lib/api/          browser-side client — Server Components use lib/db directly
+proxy.ts          stamps x-gaja-pathname; NOT the auth boundary
+```
+
+Conventions worth knowing before changing anything:
+
+- **`.agents/visual-language.md` is the record.** There is no brand colour, weight
+  never exceeds 500, and `#ED2B32` may not carry body text. `app/globals.css` is its
+  transcription — change the record first, then the CSS.
+- **Auth is gated in `app/(app)/layout.tsx`, not in `proxy.ts`.** The session is an
+  opaque token checked against Postgres, and Proxy must not do database work.
+- **Errors are RFC 9457 problem documents.** Branch on `type`, never on `detail`.
