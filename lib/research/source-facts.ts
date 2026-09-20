@@ -66,8 +66,13 @@ export type SourceFacts = {
   closedDays?: ClosedDays;
   /** This source's own rating only. Layer 2 keeps sources separate — never averages. */
   rating?: number;
-  /** Raw review sentences for layer 2's LLM digest. No summarisation in layer 1. */
-  reviewTexts?: string[];
+
+  // NOTE: review text deliberately does NOT live here. A bare `string[]` cannot
+  // carry the url and postedAt that §4.3's evidence rule needs — a quote without
+  // a followable receipt and a date is not evidence — and reviews are not a
+  // `PlaceSource` concern at all: §7.1 marks Naver Blog ✓ under reviews/wait and
+  // blank under identity, coords and hours. Review text arrives as `ReviewText`
+  // from a `ReviewSource` (lib/research/review-source.ts), on its own schedule.
 
   /**
    * Anything the source returned that layer 1 chose not to (or could not) map to

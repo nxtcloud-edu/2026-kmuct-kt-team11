@@ -8,15 +8,23 @@
  *   4. mark `degraded` when a source failed or a field is missing,
  *   5. compute the re-fetch boundary (`ttl_until`).
  *
- * Grading a `price_band` and producing a `review_digest` need a price signal and
- * an LLM respectively; those are injected (`GradePriceBand`, `SummariseReviews`)
- * so this function stays pure, testable, and free of a model dependency. When an
- * injector is absent the corresponding field is left null and the row is degraded
+ * Grading a `price_band` needs a price signal, so it is injected
+ * (`GradePriceBand`) and this function stays pure and testable. The
+ * `review_digest` is not injected but CARRIED: it is produced by a separate
+ * pipeline from a separate family of sources (see `FusedReviewDigest`). When
+ * either is absent the corresponding field is left null and the row is degraded
  * — honest partial data rather than a guess.
  */
 
 import type { PlaceSourceName, SourceFacts } from './source-facts';
-import type { PlaceFacts, PriceBand, RatingBySource, ReviewDigest, SourceTrace } from './place-facts';
+import type {
+  PlaceFacts,
+  PriceBand,
+  RatingBySource,
+  ReviewDigest,
+  ReviewSourceName,
+  SourceTrace,
+} from './place-facts';
 
 /** Default cache lifetime. Hours change rarely; a week keeps us off the source. */
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,8 +36,15 @@ export type FuseOptions = {
   now?: () => Date;
   /** Grades a price band from the raw hints each source left. Optional. */
   gradePriceBand?: GradePriceBand;
-  /** Produces the review digest (LLM in production). Optional. */
-  summariseReviews?: SummariseReviews;
+  /**
+   * The digest to write into this row, already produced, with its provenance.
+   * Absent ⇒ the row carries no digest and is degraded.
+   *
+   * `fuseFacts` has no memory: a caller that is NOT re-running the digest
+   * pipeline passes forward the digest it read from the store, or the upsert
+   * blanks a digest that was fine.
+   */
+  reviewDigest?: FusedReviewDigest;
   /**
    * Sources we intended to fetch. If a name here is absent from `facts`, that
    * source failed and the row is degraded. Defaults to the sources present.
@@ -38,7 +53,33 @@ export type FuseOptions = {
 };
 
 export type GradePriceBand = (facts: SourceFacts[]) => PriceBand | null;
-export type SummariseReviews = (reviewTexts: string[]) => ReviewDigest | null;
+
+/**
+ * A digest plus the provenance to record for it.
+ *
+ * WHY this is a value and not a `summariseReviews` injector like
+ * `gradePriceBand`: the digest is not made from `SourceFacts`. It is made by
+ * `digest.ts` from `ReviewText[]` that a `ReviewSource` retrieved (wait-digest
+ * §2, §4), on its own hourly cron, from a different family of sources than the
+ * `PlaceSource` adapters this function fuses. A synchronous injector here could
+ * not express that pipeline's own failure rule either — §6 says a failed model
+ * call leaves the row UNTOUCHED, where a summariser returning null would
+ * instead mark the row degraded and overwrite a good digest with a blank one.
+ * So the seam leaves `fuseFacts` entirely and this function only carries the
+ * result, which keeps it pure, synchronous and free of a model dependency.
+ *
+ * `digest` is non-nullable on purpose: "no digest" is expressed by omitting the
+ * option, and an EMPTY digest (`{}`) is a complete answer — §6's "we looked and
+ * there is nothing", distinct from never having checked.
+ */
+export type FusedReviewDigest = {
+  digest: ReviewDigest;
+  source: ReviewSourceName;
+  /** ISO 8601, when the digest was produced. */
+  at: string;
+  /** URLs of the posts it was built from. */
+  posts: string[];
+};
 
 /**
  * Fuse the facts several sources returned for ONE place into a single row.
@@ -106,17 +147,12 @@ export function fuseFacts(
     degraded = true;
   }
 
-  // ── review digest: injected summariser (LLM) over pooled review texts ───────
-  const reviewTexts = facts.flatMap((f) => f.reviewTexts ?? []);
+  // ── review digest: carried in, produced elsewhere (see FusedReviewDigest) ──
   let reviewDigest: ReviewDigest | null = null;
-  if (opts.summariseReviews && reviewTexts.length > 0) {
-    reviewDigest = opts.summariseReviews(reviewTexts);
-    if (reviewDigest) {
-      const src = facts.find((f) => (f.reviewTexts ?? []).length > 0)!;
-      trace.review_digest = { source: src.source, at: src.fetchedAt };
-    } else {
-      degraded = true;
-    }
+  const rd = opts.reviewDigest;
+  if (rd) {
+    reviewDigest = rd.digest;
+    trace.review_digest = { source: rd.source, at: rd.at, posts: rd.posts };
   } else {
     degraded = true;
   }

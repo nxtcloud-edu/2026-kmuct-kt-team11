@@ -1,11 +1,22 @@
 -- Slice 2 — Research cache (partial).
--- Source of truth: docs/superpowers/specs/2026-09-18-gaja-design.md §5.3
+-- Source of truth: docs/superpowers/specs/2026-09-18-gaja-design.md §5.3,
+-- sharpened by docs/superpowers/specs/2026-09-20-gaja-wait-digest-design.md §3.
 --
 -- The output side of place research: one row per place holding the fused facts
 -- layer 2 produced from one or more `SourceFacts` (lib/research/source-facts.ts).
 --
 -- Scope of THIS migration: the table only. The PlaceSource adapters, the fusion
 -- code, and the LLM digest are application code, not schema.
+--
+-- THIS IS THE ONLY `place_facts`. The wait-digest spec §3 prints a second
+-- `create table place_facts` describing the same table; that block is a
+-- description of this one, not a second migration to write. Whoever implements
+-- the digest fills `review_digest` here.
+--
+-- What this feature populates today: nothing — the adapters have not landed.
+-- `hours`, `closed_days`, `price_band` and `rating` stay null until the
+-- Kakao/Google/Naver Place adapters arrive, and `review_digest` until the
+-- digest pipeline does. Those nulls are a stated state, not a defect.
 
 -- ── Research cache ──────────────────────────────────────────────────────────
 -- One row per place. `place_id` is the PK: research is cached per resolved place,
@@ -32,7 +43,11 @@ create table place_facts (
   -- Averaging would erase that naver and google measure different populations.
   rating        jsonb,
 
-  -- LLM-produced digest. Shape in §5.3: { wait, vibe, warnings }.
+  -- LLM-produced digest. Top-level keys { wait, vibe, warnings } per §5.3;
+  -- the inside of `wait` is the wait-digest spec §3.1 shape — a closed
+  -- vocabulary slot key mapping to typed minutes, a computed confidence,
+  -- and evidence objects each carrying quote + url + posted_at. `{}` means
+  -- "we looked and found nothing"; null means "never checked".
   review_digest jsonb,
 
   -- True when at least one intended source failed or a field could not be
