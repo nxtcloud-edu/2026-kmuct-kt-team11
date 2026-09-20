@@ -132,14 +132,25 @@ export class NaverBlogSource implements ReviewSource {
     const items = await runActor(
       ACTOR,
       {
+        // REQUIRED, AND ITS ABSENCE IS WHY THIS SOURCE NEVER ONCE RAN. The actor
+        // rejects the whole input at validation with
+        // `Field input.target is required`, so every Naver search 400'd before
+        // it started and the screen reported "read failed" for a request that
+        // had not been made. `keyword` selects a search; `postUrls` would mean
+        // "scrape exactly these posts", which is not what we are doing.
+        //
+        // The previous input guessed at parameter names and sent several
+        // spellings of each, on the theory that an actor ignores what it does
+        // not recognise so a wrong guess degrades to "unfiltered". That is true
+        // of unknown OPTIONAL fields and says nothing about a required one it
+        // had never heard of — which is the case that actually occurred. These
+        // are now the ten names in the actor's published input schema, nothing
+        // invented: target, keyword, sortBy, dateFrom, dateTo,
+        // sponsorshipFilter, maxItems, postUrls, contentFormat,
+        // includeEngagement.
+        target: 'keyword',
         keyword,
-        // The actor's own parameter names. Several are sent under more than one
-        // spelling because the actor has used both across versions and ignores
-        // the ones it does not know — cheaper than a version probe, and a wrong
-        // guess degrades to "unfiltered", never to "wrong results".
-        keywords: [keyword],
         maxItems: MAX_POSTS,
-        maxResults: MAX_POSTS,
         dateFrom: since.toISOString().slice(0, 10),
         // §4.1: the bodies are already in the response at this setting, so
         // asking for text costs nothing extra over asking for HTML.
