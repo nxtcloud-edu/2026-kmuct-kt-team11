@@ -9,7 +9,7 @@
  */
 import { pool, query, queryOne } from '../lib/db';
 import { resolveSenderToUser } from '../lib/ingest/route-sender';
-import { saveReel } from '../lib/ingest/save-reel';
+import { claimReel, finishReel, markReelFailed, saveReel } from '../lib/ingest/save-reel';
 
 // Distinctive enough to delete by, and app-scoped nonsense by construction: an
 // igsid from a real Meta app would be digits. See the app-scoping note in
@@ -33,7 +33,18 @@ function eq<T>(what: string, got: T, want: T) {
   ok(what, Object.is(got, want), `got ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
 }
 
-const extraction = (places: { ordinal: number; name: string }[], confidence: 'low' | 'medium' | 'high') => ({
+type FixturePlace = {
+  ordinal: number;
+  name: string;
+  /** Null stands for "the extractor could not classify this one" — see section 10. */
+  category?: 'cafe' | 'restaurant' | 'exhibition' | 'shop' | 'activity' | null;
+  category_confidence?: 'low' | 'medium' | 'high' | null;
+};
+
+// `category` defaults to a confident 'cafe' because most assertions here are
+// about the reel WRITE path and want a clean 'extracted'. Section 10 overrides it
+// to prove the other half: an unclassifiable venue costs the reel a review.
+const extraction = (places: FixturePlace[], confidence: 'low' | 'medium' | 'high') => ({
   places: places.map((p) => ({
     ordinal: p.ordinal,
     name: p.name,
@@ -42,6 +53,8 @@ const extraction = (places: { ordinal: number; name: string }[], confidence: 'lo
     address: null,
     hours_raw: null,
     menu_raw: null,
+    category: p.category === undefined ? ('cafe' as const) : p.category,
+    category_confidence: p.category === undefined ? ('high' as const) : p.category_confidence ?? null,
   })),
   title: '성수 카페 3곳',
   confidence,
@@ -260,6 +273,63 @@ async function main() {
   eq('both entries saved', twice.savedPlaceIds.length, 2);
   eq('the first mention keeps the place', await placeIdAt(twice.reelId, 1), seongsu);
   eq('the second is written unresolved', await placeIdAt(twice.reelId, 2), null);
+
+  console.log('\n10 — a venue nobody could classify');
+  // `places.category` is NOT NULL with a CHECK and a caption never states one, so
+  // the extractor classifies (lib/extract/caption.ts) and says how sure it is.
+  // A null or low-confidence category must not become a fact in that column: the
+  // reel goes to review instead, with the candidate intact in `reels.extracted`.
+  const uncategorised = await saveReel({
+    userId, reelVideoId: `${REEL}-nocat`, sourceUrl: null, rawCaption: '1.어디 호텔',
+    extraction: extraction([{ ordinal: 1, name: '어디 호텔', category: null }], 'high'),
+  });
+  eq('no category → needs_review', await statusOf(uncategorised.reelId), 'needs_review');
+  eq('the candidate is still saved', uncategorised.savedPlaceIds.length, 1);
+
+  const unsureCategory = await saveReel({
+    userId, reelVideoId: `${REEL}-lowcat`, sourceUrl: null, rawCaption: '1.어니언',
+    extraction: extraction(
+      [{ ordinal: 1, name: '어니언 성수', category: 'cafe', category_confidence: 'low' }],
+      'high',
+    ),
+  });
+  eq('a low-confidence category → needs_review', await statusOf(unsureCategory.reelId), 'needs_review');
+
+  console.log('\n11 — a reel is claimed pending, then finished');
+  // The two-stage path the ingest pass uses. The window between them is what the
+  // home screen counts to say `릴스 1개 분석 중`, so it has to be a real row in a
+  // real state, not a column default nobody writes.
+  const claimed = await claimReel({
+    userId, reelVideoId: `${REEL}-staged`, sourceUrl: null, rawCaption: '1.어니언 2.자그마치',
+  });
+  eq('the claim is new', claimed.alreadyExisted, false);
+  eq('and the reel is pending', await statusOf(claimed.reelId), 'pending');
+  eq('with no venues yet', (await ordinalsFor(claimed.reelId)).length, 0);
+
+  const reclaimed = await claimReel({
+    userId, reelVideoId: `${REEL}-staged`, sourceUrl: null, rawCaption: '1.어니언 2.자그마치',
+  });
+  eq('a redelivered claim is recognised', reclaimed.alreadyExisted, true);
+  eq('and returns the same reel', reclaimed.reelId, claimed.reelId);
+
+  const finished = await finishReel({
+    reelId: claimed.reelId,
+    userId,
+    extraction: extraction(
+      [{ ordinal: 1, name: '어니언 성수' }, { ordinal: 2, name: '자그마치' }],
+      'high',
+    ),
+  });
+  eq('finishing writes both venues', finished.savedPlaceIds.length, 2);
+  eq('and moves the reel off pending', await statusOf(claimed.reelId), 'extracted');
+
+  console.log('\n12 — a claim that was never finished');
+  const abandoned = await claimReel({
+    userId, reelVideoId: `${REEL}-abandoned`, sourceUrl: null, rawCaption: null,
+  });
+  await markReelFailed(abandoned.reelId);
+  // Otherwise the home screen says `분석 중` about a pass that died ten minutes ago.
+  eq('markReelFailed moves it off pending', await statusOf(abandoned.reelId), 'failed');
 
   await query(`delete from users where id = $1`, [userId]);
   // The fixture places are not owned by the user and do not cascade with them,

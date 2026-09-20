@@ -81,6 +81,14 @@ try {
     address: '서울 마포구 망원로3길 7',
     hours_raw: '매일 11:00-22:30 금,토 11:00-23:00',
     menu_raw: '티그레 (4,200) 아메리카노 (4,800)',
+    // Null, and asserted rather than omitted. The deterministic grammar reads
+    // markers; `📍우이그` says a name and never says "cafe", so it cannot
+    // classify and must not guess — `places.category` is NOT NULL with a CHECK,
+    // and a guess written there reads as a fact. Classification is the model
+    // path's job. If these ever come back non-null from this parser, something
+    // has started inferring, and this assertion is what catches it.
+    category: null,
+    category_confidence: null,
   });
 
   ck('a venue with no handle gets null, not the creator\'s',

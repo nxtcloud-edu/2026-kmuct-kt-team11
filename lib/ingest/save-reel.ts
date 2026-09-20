@@ -1,5 +1,48 @@
-import { tx } from '../db';
+import { query, tx } from '../db';
 import type { CaptionExtraction } from '../extract/types';
+
+/**
+ * Everything the reel is known by before anything has been read out of it — the
+ * DM's own four facts. `claimReel` takes exactly this and nothing more, which is
+ * the point: the claim happens BEFORE the extraction ladder runs, so it cannot
+ * depend on the ladder's output.
+ */
+export type ClaimReelInput = {
+  userId: string;
+  reelVideoId: string;
+  sourceUrl: string | null;
+  rawCaption: string | null;
+};
+
+export type ClaimReelResult = {
+  reelId: string;
+  /** True when this reel was already ours — a redelivery. Nothing was written. */
+  alreadyExisted: boolean;
+  /**
+   * The row's status as it stands. `'pending'` on a fresh claim; on a
+   * redelivery it is whatever the previous pass left behind, and the caller
+   * needs it to tell two very different redeliveries apart.
+   *
+   * A reel that reached `'extracted'` or `'needs_review'` is done and a second
+   * delivery is an ack. A reel still `'pending'`, or `'failed'`, is one whose
+   * analysis did not survive — a model timeout, a killed process — and it has no
+   * saved_places, because `finishReel` writes the status and the venues in one
+   * transaction. Re-running the analysis over it is therefore safe and is the
+   * only thing that ever un-sticks it.
+   */
+  status: 'pending' | 'extracted' | 'needs_review' | 'failed';
+};
+
+export type FinishReelInput = {
+  /** From `claimReel`. */
+  reelId: string;
+  /** The same user the claim was made for; the venues are written under it. */
+  userId: string;
+  /** Null when extraction never produced a result — a crash, a timeout, a refusal. */
+  extraction: CaptionExtraction | null;
+  /** See `SaveReelInput.placeIds`. */
+  placeIds?: ReadonlyMap<number, string>;
+};
 
 export type SaveReelInput = {
   userId: string;
@@ -46,11 +89,31 @@ function reelStatus(extraction: CaptionExtraction | null): ReelStatus {
   if (!extraction) return 'failed';
   if (extraction.places.length === 0) return 'needs_review';
   if (extraction.confidence === 'low') return 'needs_review';
+  // A venue the extractor could not classify, or classified with a shrug.
+  //
+  // `places.category` is NOT NULL with a CHECK, so one of these two things has
+  // already happened by the time this runs: the candidate was written with the
+  // reel-level fallback the caller stood behind, or it was not written at all
+  // (`ResolveFailure: 'no-category'`, lib/research/resolve-place.ts). Either way
+  // a person should look — the first case put a title's guess on a row, and the
+  // second left a named venue with no place. This is the rule that makes asking
+  // a model for a category safe rather than merely convenient: the answer it was
+  // unsure about costs a review, never a fact.
+  if (extraction.places.some((p) => !p.category || p.category_confidence === 'low')) {
+    return 'needs_review';
+  }
   return 'extracted';
 }
 
 /**
- * Persist one extracted reel and the venues it named.
+ * Persist one extracted reel and the venues it named, in a single call.
+ *
+ * `claimReel` then `finishReel`, run inside ONE transaction — the same two
+ * statements the ingest pass makes separately, so there is one definition of
+ * what a saved reel is and no second write path to drift. Use this when the
+ * extraction is already in hand (scripts/ingest-inbox-once.ts,
+ * scripts/verify-reel-ingest.ts); use the two stages when the analysis happens
+ * between them and the `pending` row should be visible while it does.
  *
  * ONE TRANSACTION, because a listicle is not a set of independent rows. Half of a
  * ten-venue reel is worse than none of it: the user sees five places, believes
@@ -77,97 +140,175 @@ function reelStatus(extraction: CaptionExtraction | null): ReelStatus {
  * findable from the row by `(reel_id, ordinal)`.
  */
 export async function saveReel(input: SaveReelInput): Promise<SaveReelResult> {
+  return tx(async (c) => {
+    const reelId = await claimIn(c, input);
+    if (!reelId) return readBack(c, input);
+    const savedPlaceIds = await finishIn(c, reelId, input);
+    return { reelId, savedPlaceIds, alreadyExisted: false };
+  });
+}
+
+/**
+ * Stage one: take the reel, before anything has been read out of it.
+ *
+ * Writes `status = 'pending'` and nothing else — the state 20260918000001
+ * defined in so many words ("the row is created at ack time with
+ * status='pending', before extraction") and which, until this existed, nothing
+ * ever actually wrote. The ingest pass called `saveReel` at the END, after the
+ * ladder and ten geocodes, so a reel was invisible for the ten-odd seconds it
+ * took to analyse and then appeared finished. `pending` was a column default
+ * with no writer.
+ *
+ * THAT WINDOW IS THE PRODUCT. app/(app)/home/ingest-status.tsx counts these rows
+ * to say `릴스 1개 분석 중`, and it can only be honest if the row exists while the
+ * work is actually happening. Claim first, analyse, then `finishReel`.
+ *
+ * Returns null when the reel is already ours — the `on conflict do nothing`
+ * branch, which is what makes a redelivered DM cheap. See `saveReel`'s note.
+ */
+export async function claimReel(input: ClaimReelInput): Promise<ClaimReelResult> {
+  return tx(async (c) => {
+    const reelId = await claimIn(c, input);
+    if (reelId) return { reelId, alreadyExisted: false, status: 'pending' };
+
+    const existing = await c.query<{ id: string; status: ClaimReelResult['status'] }>(
+      `select id, status from reels where user_id = $1 and reel_video_id = $2`,
+      [input.userId, input.reelVideoId],
+    );
+    if (!existing.rows[0]) {
+      throw new Error(
+        `reels insert conflicted on (${input.userId}, ${input.reelVideoId}) but no row was found`,
+      );
+    }
+    return { reelId: existing.rows[0].id, alreadyExisted: true, status: existing.rows[0].status };
+  });
+}
+
+/**
+ * Stage two: the extraction landed, so record it and write the venues.
+ *
+ * ONE TRANSACTION, for the reason `saveReel` gives at length: half a ten-venue
+ * listicle is worse than none of it. The reel row is already committed by
+ * `claimReel`, so what rolls back here is the status change and the venues
+ * together — a failure leaves the reel exactly as the claim left it, `pending`
+ * with no places, which is a state the caller can see and correct
+ * (`markReelFailed`) rather than a half-written list it cannot.
+ *
+ * Call it exactly once per claim. A second call raises a unique violation on
+ * `saved_places_reel_ordinal_idx` rather than duplicating the venues, which is
+ * the right end for a bug of that shape.
+ */
+export async function finishReel(input: FinishReelInput): Promise<{ savedPlaceIds: string[] }> {
+  return tx(async (c) => ({ savedPlaceIds: await finishIn(c, input.reelId, input) }));
+}
+
+/**
+ * The reel was claimed and then could not be analysed.
+ *
+ * Without this a pass that dies between the two stages leaves a `pending` row
+ * forever, and forever is exactly how long the home screen would go on saying
+ * `분석 중`. Deliberately narrow: it moves the status and touches nothing else,
+ * so a reel that failed keeps its caption and its source url for whoever comes
+ * to look at why.
+ */
+export async function markReelFailed(reelId: string): Promise<void> {
+  await query(`update reels set status = 'failed' where id = $1 and status = 'pending'`, [reelId]);
+}
+
+/** The insert, on a caller's client. Null means the reel was already ours. */
+async function claimIn(c: import('pg').PoolClient, input: ClaimReelInput): Promise<string | null> {
+  const inserted = await c.query<{ id: string }>(
+    `insert into reels (user_id, reel_video_id, source_url, raw_caption, status)
+          values ($1, $2, $3, $4, 'pending')
+     on conflict (user_id, reel_video_id) do nothing
+       returning id`,
+    [input.userId, input.reelVideoId, input.sourceUrl, input.rawCaption],
+  );
+  return inserted.rows[0]?.id ?? null;
+}
+
+/** The extraction write plus the venues, on a caller's client. */
+async function finishIn(
+  c: import('pg').PoolClient,
+  reelId: string,
+  input: {
+    userId: string;
+    extraction: CaptionExtraction | null;
+    placeIds?: ReadonlyMap<number, string>;
+  },
+): Promise<string[]> {
   const places = input.extraction?.places ?? [];
 
-  return tx(async (c) => {
-    const inserted = await c.query<{ id: string }>(
-      `insert into reels (user_id, reel_video_id, source_url, raw_caption, extracted, status)
-            values ($1, $2, $3, $4, $5, $6)
-       on conflict (user_id, reel_video_id) do nothing
-         returning id`,
-      [
-        input.userId,
-        input.reelVideoId,
-        input.sourceUrl,
-        input.rawCaption,
-        // `pg` serialises a plain object into jsonb; null stays SQL NULL. Same
-        // handling as lib/research/store.ts, which writes four jsonb columns.
-        input.extraction,
-        reelStatus(input.extraction),
-      ],
-    );
+  await c.query(`update reels set extracted = $2, status = $3 where id = $1`, [
+    reelId,
+    // `pg` serialises a plain object into jsonb; null stays SQL NULL. Same
+    // handling as lib/research/store.ts, which writes four jsonb columns.
+    input.extraction,
+    reelStatus(input.extraction),
+  ]);
 
-    if (!inserted.rows[0]) return readBack(c, input);
-
-    const reelId = inserted.rows[0].id;
-
-    // One statement rather than a loop: N round trips inside a transaction hold a
-    // pooled client open for N latencies, and a ten-venue listicle is the normal
-    // case, not the extreme one.
-    //
-    // A duplicate ordinal inside one extraction violates
-    // `saved_places_reel_ordinal_idx` and takes the whole transaction down. That is
-    // deliberate — two venues claiming position 3 is an extractor bug, and writing
-    // one of them while dropping the other is how it would stay invisible.
-    //
-    // The `dropped` CTE below exists for a DIFFERENT index, and dropping it would
-    // reintroduce the bug this seam was built to avoid. `saved_places_no_duplicate_idx`
-    // is unique on (user_id, place_id, coalesce(group_id, zero)) where the row is not
-    // rejected and place_id is not null — so the moment a resolved place_id is
-    // written, a venue the user ALREADY holds (saved by hand in March, shared in a
-    // reel in April) raises a unique violation, and because this is one transaction
-    // that violation takes all ten venues with it. Two entries in one reel resolving
-    // to the same place — two branches within 50 m and similar names — do the same.
-    // Both are handled by writing that row unresolved rather than by failing:
-    // `place_id` null, status 'pending', ordinal intact, candidate still in
-    // `reels.extracted`. The user already has the place; this reel does not get to
-    // claim it twice, and it does not get to destroy the other nine either.
-    //
-    // Under READ COMMITTED the `exists` check can still be raced by a DIFFERENT reel
-    // for the same user resolving the same venue concurrently. That loser rolls back
-    // whole and the poller redelivers — which is the behaviour the idempotent insert
-    // above is for, not a case worth a lock over.
-    const rows = await c.query<{ id: string; ordinal: number }>(
-      `with candidate as (
-         select o, p, row_number() over (partition by p order by o) as nth
-           from unnest($3::smallint[], $4::uuid[]) as u(o, p)
-       ),
-       dropped as (
-         select c.o,
-                case when c.nth > 1 then null
-                     when exists (
-                       select 1 from saved_places sp
-                        where sp.user_id = $1 and sp.place_id = c.p
-                          and sp.group_id is null and sp.status <> 'rejected'
-                     ) then null
-                     else c.p
-                end as p
-           from candidate c
-       )
-       insert into saved_places (user_id, reel_id, ordinal, place_id, status, confirmed)
-            select $1, $2, d.o, d.p,
-                   case when d.p is null then 'pending' else 'resolved' end, false
-              from dropped d
-         returning id, ordinal`,
-      [
-        input.userId,
-        reelId,
-        places.map((p) => p.ordinal),
-        // Parallel arrays, so the null for an unresolved ordinal has to be
-        // written out — `unnest` of two arrays of different lengths pads the
-        // short one with nulls, which would silently mis-pair them.
-        places.map((p) => input.placeIds?.get(p.ordinal) ?? null),
-      ],
-    );
-
-    return {
+  // One statement rather than a loop: N round trips inside a transaction hold a
+  // pooled client open for N latencies, and a ten-venue listicle is the normal
+  // case, not the extreme one.
+  //
+  // A duplicate ordinal inside one extraction violates
+  // `saved_places_reel_ordinal_idx` and takes the whole transaction down. That is
+  // deliberate — two venues claiming position 3 is an extractor bug, and writing
+  // one of them while dropping the other is how it would stay invisible.
+  //
+  // The `dropped` CTE below exists for a DIFFERENT index, and dropping it would
+  // reintroduce the bug this seam was built to avoid. `saved_places_no_duplicate_idx`
+  // is unique on (user_id, place_id, coalesce(group_id, zero)) where the row is not
+  // rejected and place_id is not null — so the moment a resolved place_id is
+  // written, a venue the user ALREADY holds (saved by hand in March, shared in a
+  // reel in April) raises a unique violation, and because this is one transaction
+  // that violation takes all ten venues with it. Two entries in one reel resolving
+  // to the same place — two branches within 50 m and similar names — do the same.
+  // Both are handled by writing that row unresolved rather than by failing:
+  // `place_id` null, status 'pending', ordinal intact, candidate still in
+  // `reels.extracted`. The user already has the place; this reel does not get to
+  // claim it twice, and it does not get to destroy the other nine either.
+  //
+  // Under READ COMMITTED the `exists` check can still be raced by a DIFFERENT reel
+  // for the same user resolving the same venue concurrently. That loser rolls back
+  // whole and the poller redelivers — which is the behaviour the idempotent insert
+  // above is for, not a case worth a lock over.
+  const rows = await c.query<{ id: string; ordinal: number }>(
+    `with candidate as (
+       select o, p, row_number() over (partition by p order by o) as nth
+         from unnest($3::smallint[], $4::uuid[]) as u(o, p)
+     ),
+     dropped as (
+       select c.o,
+              case when c.nth > 1 then null
+                   when exists (
+                     select 1 from saved_places sp
+                      where sp.user_id = $1 and sp.place_id = c.p
+                        and sp.group_id is null and sp.status <> 'rejected'
+                   ) then null
+                   else c.p
+              end as p
+         from candidate c
+     )
+     insert into saved_places (user_id, reel_id, ordinal, place_id, status, confirmed)
+          select $1, $2, d.o, d.p,
+                 case when d.p is null then 'pending' else 'resolved' end, false
+            from dropped d
+       returning id, ordinal`,
+    [
+      input.userId,
       reelId,
-      // RETURNING has no defined row order, so the caller's "first venue first"
-      // comes from the ordinal, not from the order Postgres handed rows back.
-      savedPlaceIds: sortByOrdinal(rows.rows),
-      alreadyExisted: false,
-    };
-  });
+      places.map((p) => p.ordinal),
+      // Parallel arrays, so the null for an unresolved ordinal has to be
+      // written out — `unnest` of two arrays of different lengths pads the
+      // short one with nulls, which would silently mis-pair them.
+      places.map((p) => input.placeIds?.get(p.ordinal) ?? null),
+    ],
+  );
+
+  // RETURNING has no defined row order, so the caller's "first venue first"
+  // comes from the ordinal, not from the order Postgres handed rows back.
+  return sortByOrdinal(rows.rows);
 }
 
 /**

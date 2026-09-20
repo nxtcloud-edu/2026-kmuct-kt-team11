@@ -17,7 +17,7 @@
  * not cost us the other nine.
  */
 
-import type { InboxClip, InboxThumb } from './index';
+import type { InboxClip, InboxThumb, InboxVideo } from './index';
 
 /** Records are read field by field; nothing here trusts a shape it has not checked. */
 type Json = Record<string, unknown>;
@@ -193,6 +193,35 @@ function thumbOf(media: Json): InboxThumb | null {
   return pickThumbCandidate(candidates);
 }
 
+/**
+ * `media.video_versions[0].url` — the reel's mp4, read defensively.
+ *
+ * NO PICKER, unlike `thumbOf`. The thumbnail ladder mixes squares with portraits
+ * and the choice between them decides whether the venue survives the crop; the
+ * video ladder is the same 9:16 reel at several bitrates, and rung two of the
+ * extraction ladder is reading burned-in text and listening to speech off it.
+ * Instagram orders these highest-quality-first, and the first entry is what the
+ * measurement in lib/extract/asr.ts was taken against: 720x1280, 4,350,463 bytes
+ * for 9.6s, transcribed in 3.9s. Sorting by a `width` this payload does not
+ * reliably carry would be a guess dressed as a rule.
+ *
+ * What IS defended is the shape. `video_versions` is an undocumented field on an
+ * unversioned endpoint, and a clip whose video block has gone strange must lose
+ * its video, not its caption — the caption is the product and rung one runs on
+ * it alone.
+ */
+function videoOf(media: Json): InboxVideo | null {
+  for (const raw of arr(media.video_versions)) {
+    const v = obj(raw);
+    if (!v) continue;
+    const url = typeof v.url === 'string' && v.url.length > 0 ? v.url : null;
+    // http, never anything else. A `data:` or `file:` url here would be handed
+    // straight to a fetch in lib/extract/asr.ts, and the payload is not ours.
+    if (url && /^https?:\/\//i.test(url)) return { url };
+  }
+  return null;
+}
+
 export type ParseOptions = {
   /**
    * `IG_DS_USER_ID` — the polling account's own id. Items it authored are its
@@ -257,6 +286,7 @@ export function parseInboxClips(payload: unknown, opts: ParseOptions): InboxClip
         sourceUrl: code ? `https://www.instagram.com/reel/${code}/` : null,
         caption: captionOf(media),
         thumb: thumbOf(media),
+        video: videoOf(media),
         sharedAt,
       });
     }

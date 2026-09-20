@@ -44,7 +44,26 @@ export type InboxThumb = {
 };
 
 /**
- * One reel share, normalised. Six fields, all of which the Messaging API can
+ * The reel's own mp4, already chosen.
+ *
+ * `url` IS EXPECTED TO DIE, on exactly the terms `InboxThumb.url` does: it is a
+ * signed CDN link whose `oe=` parameter is an expiry, measured at roughly four
+ * and a half days. NOTHING MAY STORE IT. It is an instruction to spend the bytes
+ * NOW, while the link is alive — lib/extract/asr.ts downloads it inside the
+ * ingest pass and never again, and a design that fetched it when a user opened a
+ * saved place would work in development and return 403 for anything saved last
+ * week.
+ *
+ * Unlike the thumbnail there is no ladder to pick from here: the payload's
+ * `video_versions` are the same reel at different bitrates, and the model reads
+ * the first one as well as it reads the largest. See `videoOf` in ./parse.ts.
+ */
+export type InboxVideo = {
+  url: string;
+};
+
+/**
+ * One reel share, normalised. Seven fields, all of which the Messaging API can
  * also produce.
  */
 export type InboxClip = {
@@ -96,6 +115,22 @@ export type InboxClip = {
    * for the picture of it. The deck falls back to lib/reel-thumb.ts.
    */
   thumb: InboxThumb | null;
+
+  /**
+   * The reel's mp4, or null when the payload carried none.
+   *
+   * NULL IS ORDINARY AND MUST NOT COST THE REEL, for the same reason a missing
+   * thumbnail must not: the caption is the product and rung one of the ladder
+   * runs on it alone. What a null costs is rung two — lib/extract/ladder.ts
+   * records `{ ran: false, skipped: 'no-video' }` and the reel is judged on its
+   * caption, which is the right answer for a listicle and a real loss for a vibe
+   * reel that says everything on screen.
+   *
+   * This is the ONE field here that an unauthenticated server can use: the mp4
+   * and the cover answer 200 to a plain fetch with no Instagram cookies —
+   * verified — and only the inbox itself needs the session.
+   */
+  video: InboxVideo | null;
 
   /** When the share arrived. The cursor is a high-water mark over this. */
   sharedAt: Date;

@@ -210,6 +210,31 @@ test('a clip with no image_versions2 has a null thumb, and keeps everything else
   assert.equal(old?.caption, '커서보다 오래된 공유');
 });
 
+test('a clip carries its mp4, and rung two is what a missing one costs', () => {
+  const clips = parseInboxClips(payload, { selfUserId: SELF, since: null });
+
+  const listicle = clips.find((c) => c.reelVideoId === 'FIXTURECODE01');
+  // The first entry, not the smallest: the versions are one reel at several
+  // bitrates and the model reads any of them. See `videoOf` in parse.ts.
+  assert.ok(listicle?.video?.url.includes('fixture-720.mp4'));
+
+  const old = clips.find((c) => c.reelVideoId === 'OLDSHARE006');
+  assert.equal(old?.video, null);
+  // A reel with no mp4 keeps everything that matters. The caption is the product;
+  // what a null video costs is the video rung of the extraction ladder, not the reel.
+  assert.equal(old?.caption, '커서보다 오래된 공유');
+});
+
+test('a video block that has gone strange loses the video, not the clip', () => {
+  const clips = parseInboxClips(payload, { selfUserId: SELF, since: null });
+  const flat = clips.find((c) => c.reelVideoId === 'FLATSHAPE004');
+  // That item's versions hold a string, an entry with no url, and a `data:` url —
+  // which must never reach the fetch in lib/extract/asr.ts.
+  assert.ok(flat?.video?.url.startsWith('https://'));
+  assert.ok(flat?.video?.url.includes('flat-360.mp4'));
+  assert.equal(flat?.caption !== undefined, true);
+});
+
 test('detectBlock trips on the statuses that mean stop', () => {
   assert.equal(detectBlock(401, {}), 'http-401-session-invalid');
   assert.equal(detectBlock(429, {}), 'http-429-rate-limited');

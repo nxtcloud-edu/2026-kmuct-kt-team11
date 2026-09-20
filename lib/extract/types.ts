@@ -12,6 +12,20 @@
  * rows; this file must not grow fields that presume it already happened.
  */
 
+/**
+ * The five values `places.category` accepts, restated rather than imported.
+ *
+ * `PlaceCategory` in lib/api/types.ts is the canonical list and this must equal
+ * it — lib/research/resolve-place.ts holds a compile-time assertion that they
+ * agree, so a value added there and not here is a build error, not a runtime
+ * surprise. The duplication is not laziness: scripts/test-ladder.mjs compiles
+ * lib/extract/ alone with `--rootDir lib/extract`, and a single `import type`
+ * reaching up to lib/api/ makes tsc refuse the whole directory (TS6059). The
+ * extraction modules are testable without the rest of the app precisely because
+ * they import nothing from it, and that is worth five repeated string literals.
+ */
+export type PlaceCandidateCategory = 'cafe' | 'restaurant' | 'exhibition' | 'shop' | 'activity';
+
 export type PlaceCandidate = {
   /**
    * 1-based, read off the `N.` marker rather than the array index.
@@ -67,6 +81,39 @@ export type PlaceCandidate = {
 
   /** The 📓 text, stored raw. Nothing models prices today; captured so it is not lost. */
   menu_raw: string | null;
+
+  /**
+   * What kind of place this is — the one field here that is a JUDGEMENT rather
+   * than a copy, and the only reason it is allowed to be one.
+   *
+   * `places.category` is NOT NULL with a CHECK, so a candidate cannot become a
+   * row without an answer, and a caption never states one: it says 📍 and a
+   * name, never "restaurant". The two ways out were to hardcode `'cafe'` for
+   * every reel — writing a guess into a column that reads as a fact, the same
+   * laundering `hours_raw` exists to avoid — or to ask the step that is already
+   * reading the caption. This is that answer, and `category_confidence` is what
+   * keeps it from becoming the first option with extra steps.
+   *
+   * NULL IS THE HONEST ANSWER and must stay available. A reel about a hotel, a
+   * hiking trail or a festival is none of these five, and inventing one is worse
+   * than leaving the candidate unresolved with its name and address intact in
+   * `reels.extracted`.
+   */
+  category: PlaceCandidateCategory | null;
+
+  /**
+   * How sure the classification is. Null exactly when `category` is null.
+   *
+   * `'low'` is treated as no answer by lib/research/resolve-place.ts and sends
+   * the whole reel to `needs_review` in lib/ingest/save-reel.ts. That is the
+   * point of carrying a confidence at all: a category the extractor was not sure
+   * of must cost a human glance, not a fact in a NOT NULL column.
+   *
+   * Deliberately separate from `CaptionExtraction.confidence`, which answers a
+   * different question — "did we find the right NUMBER of venues" — and is
+   * derived from the source text rather than asked of the model.
+   */
+  category_confidence: 'low' | 'medium' | 'high' | null;
 };
 
 export type CaptionExtraction = {

@@ -24,8 +24,27 @@
 
 import { findOrCreatePlace } from '../places';
 import type { PlaceCategory } from '../api/types';
-import type { PlaceCandidate } from '../extract/types';
+import type { PlaceCandidate, PlaceCandidateCategory } from '../extract/types';
 import { GeocodeRequestError, GeocoderNotConfiguredError, geocodeAddress } from './geocode';
+
+/**
+ * THE TWO CATEGORY UNIONS AGREE, PROVEN AT BUILD TIME.
+ *
+ * `PlaceCandidateCategory` is restated in lib/extract/types.ts rather than
+ * imported from lib/api/types.ts, because scripts/test-ladder.mjs compiles
+ * lib/extract/ alone and an import reaching out of that directory makes tsc
+ * refuse it (TS6059). This file is the only one that holds both, so this is
+ * where the duplication is checked. Each parameter's DEFAULT is the other file's
+ * union and its CONSTRAINT is this file's, and TypeScript checks a default
+ * against its constraint — so a sixth category added to either list and not the
+ * other fails `npx tsc --noEmit` right here, naming both types. The body is a
+ * tuple of the two parameters for no reason but to use them; the assertion is
+ * entirely in the `extends` clauses.
+ */
+export type CategoryUnionsAgree<
+  Extracted extends PlaceCategory = PlaceCandidateCategory,
+  Api extends PlaceCandidateCategory = PlaceCategory,
+> = [Extracted, Api];
 
 /**
  * Between geocode calls. Ten venues therefore cost ~1.2s of deliberate waiting
@@ -52,7 +71,16 @@ export type ResolveFailure =
   /** The request itself failed: transport, timeout, 401, 429, 5xx. */
   | 'geocode-failed'
   /** Naver found the point but named no 동 and no 구, and `places.area` is NOT NULL. */
-  | 'no-area';
+  | 'no-area'
+  /**
+   * Nobody could say what kind of place this is: the extractor returned no
+   * category or a low-confidence one, and the caller offered no reel-level
+   * fallback either. `places.category` is NOT NULL, so the choice was between
+   * writing a guess and not writing a row, and not writing is the one that can
+   * be corrected later — the candidate's name, address and hours are still in
+   * `reels.extracted`, and the reel is `needs_review`.
+   */
+  | 'no-category';
 
 export type ResolvedCandidate = {
   ordinal: number;
@@ -64,15 +92,44 @@ export type ResolvedCandidate = {
 
 export type ResolveOptions = {
   /**
-   * REQUIRED, and not inferred. `places.category` is NOT NULL with a CHECK, and a
-   * `PlaceCandidate` carries no category at all — a caption says 📍 and a name,
-   * never "restaurant". Defaulting to 'cafe' here would write a guess into a
-   * column that reads as a fact, which is the same laundering `hours_raw` exists
-   * to avoid. The caller holds the reel's title (`여름 날에 다녀오기 좋은 카페 10곳`)
-   * and is the only thing in the system with any evidence, so the caller says.
+   * THE REEL-LEVEL FALLBACK, and nothing more. Still required to pass, so the
+   * decision stays visible at the call site; `null` is a legal and honest value.
+   *
+   * The history matters, because the shape changed for a reason. This used to be
+   * the ONLY answer: `places.category` is NOT NULL with a CHECK, a caption says
+   * 📍 and a name and never "restaurant", and defaulting to `'cafe'` here would
+   * have written a guess into a column that reads as a fact. That left the caller
+   * holding the reel's title (`여름 날에 다녀오기 좋은 카페 10곳`) as the only
+   * evidence in the system.
+   *
+   * It is no longer the only evidence. `PlaceCandidate.category` now carries a
+   * per-venue classification with its own confidence, produced by the step that
+   * was already reading the caption — a listicle of ten cafés with one 소품샵 in
+   * it is a real thing, and one category for the whole reel cannot describe it.
+   * So the order is: the candidate's own answer when it is confident, this when
+   * it is not, and `'no-category'` when neither can say. A title that names no
+   * kind of place (`서울에서 꼭 가봐야 할 10곳`) should pass `null` rather than a
+   * guess — an unresolved row is recoverable and a wrong category is not.
    */
-  category: PlaceCategory;
+  category: PlaceCategory | null;
 };
+
+/**
+ * Which category this candidate gets written with, or null for none.
+ *
+ * `'low'` is treated as no answer at all. That is the whole safety argument for
+ * asking a model to classify: a guess the extractor itself flagged as a guess
+ * must not become a fact, and lib/ingest/save-reel.ts reads the same field to
+ * send the reel to `needs_review`. Exported so the rule is testable and so the
+ * two files cannot drift on what "low" means.
+ */
+export function categoryFor(
+  candidate: Pick<PlaceCandidate, 'category' | 'category_confidence'>,
+  fallback: PlaceCategory | null,
+): PlaceCategory | null {
+  if (candidate.category && candidate.category_confidence !== 'low') return candidate.category;
+  return fallback;
+}
 
 /**
  * Resolve one candidate. Never throws for a data reason; see `ResolveFailure`.
@@ -95,6 +152,12 @@ export async function resolvePlaceCandidate(
 
   if (!candidate.address?.trim()) return unresolved('no-address');
 
+  // Decided BEFORE the geocode, not after: a candidate nobody can categorise is
+  // not going to become a row, and spending a Naver request plus the 120ms gap
+  // on it is ten wasted round trips on a reel the extractor could not read.
+  const category = categoryFor(candidate, options.category);
+  if (!category) return unresolved('no-category');
+
   let point;
   try {
     point = await geocodeAddress(candidate.address);
@@ -112,7 +175,7 @@ export async function resolvePlaceCandidate(
     // which is what lib/extract/types.ts keeps them separate for.
     name: candidate.name,
     name_alt: candidate.name_alt ? [candidate.name_alt] : [],
-    category: options.category,
+    category,
     lat: point.lat,
     lng: point.lng,
     // Naver's canonical 도로명 form, not the creator's string. Two captions

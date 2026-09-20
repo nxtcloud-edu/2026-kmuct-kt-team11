@@ -3,7 +3,9 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Content } from '@/components/surface';
 import { PlaceDeck } from './deck';
+import { IngestStatusCard } from './ingest-status';
 import { NearbyMap } from './nearby-map';
+import { readIngestStatus } from '@/lib/ingest/status';
 import { requireSession } from '@/lib/require-session';
 import { listPlacesNearby, listSavedPlacesForUser } from '@/lib/saved-places';
 
@@ -25,12 +27,17 @@ export const metadata: Metadata = { title: '홈' };
 export default async function HomePage() {
   const user = await requireSession();
 
-  const [saved, nearby] = await Promise.all([
+  const [saved, nearby, ingest] = await Promise.all([
     // The deck is the whole set, not a preview — it is the screen's main act.
     listSavedPlacesForUser(user.id, 30),
     // No home area means no "near you" section to fill — do not ask the
     // database a question whose answer cannot be shown.
     user.home_area ? listPlacesNearby(user.home_area, user.id) : Promise.resolve([]),
+    // Read on the SERVER so the card is right in the first paint. The client
+    // component polls from there; without this seed a reel that was already
+    // being analysed would go unmentioned until the first poll came back, which
+    // is the one moment the acknowledgement actually matters.
+    readIngestStatus(user.id),
   ]);
 
   const nothing = saved.length === 0 && nearby.length === 0;
@@ -56,6 +63,13 @@ export default async function HomePage() {
           다시 꺼내볼까요?
         </h1>
       </header>
+
+      {/* A shared reel, acknowledged. Renders NOTHING unless something is in
+          flight or has just landed — see ingest-status.tsx. It sits above the
+          deck because it is about a place that is not in the deck yet, and
+          because the thing the user is looking for after sharing a reel is
+          confirmation that it arrived. */}
+      <IngestStatusCard initial={ingest} />
 
       {/* Nothing to show is one line, not a designed screen. An illustration or
           a CTA here would be treating the empty state as the fix; the fix is

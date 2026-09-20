@@ -51,13 +51,33 @@ const USER_AGENT =
  * so it survives cold starts — an in-process timer resets on every new serverless
  * isolate, which is to say constantly.
  *
+ * THE DEFAULT, not the rule. A caller may pass its own `minIntervalMs` to the
+ * constructor, and the one that does — scripts/watch-inbox.ts — passes five
+ * seconds. That is deliberately a visible argument at a call site rather than an
+ * edit to this constant: the day someone wants a faster loop, the cost of it
+ * should be written in their file, next to the loop, and not buried here where
+ * the cron would inherit it too.
+ *
  * Fifteen minutes is a deliberate under-use of what the endpoint would tolerate.
  * The thing being optimised is not freshness; a reel that lands in Gaja twelve
  * minutes after it was shared is indistinguishable, to the person who shared it,
  * from one that lands in one minute. The thing being optimised is the account's
  * survival, and every request is a draw against it.
  */
-const MIN_INTERVAL_MS = 15 * 60 * 1000;
+export const DEFAULT_MIN_INTERVAL_MS = 15 * 60 * 1000;
+
+/**
+ * The floor below which no caller may set the floor.
+ *
+ * `minIntervalMs` is configurable because a local watcher needs a shorter loop
+ * than a cron does, and a constant that has to be edited to be changed is a
+ * constant that gets edited to zero. It is not configurable to NOTHING: a floor
+ * of 0 is not a faster poller, it is a `while (true)` against an undocumented
+ * endpoint on somebody's real account, and that is a decision no call site gets
+ * to make by passing a number. One second is still far more aggressive than
+ * anything that should run unattended — see the header of scripts/watch-inbox.ts.
+ */
+export const HARD_MIN_INTERVAL_MS = 1_000;
 
 /**
  * Up to two minutes shaved off the floor, and up to eight seconds of delay before
@@ -71,6 +91,23 @@ const MIN_INTERVAL_MS = 15 * 60 * 1000;
  */
 const JITTER_FLOOR_MS = 2 * 60 * 1000;
 const JITTER_DELAY_MS = 8 * 1000;
+
+/**
+ * Jitter scaled to the interval it is jittering.
+ *
+ * Subtracting up to two minutes from a five-second floor leaves a negative
+ * number, which is not a jittered floor — it is no floor at all, and the
+ * configurability above would have quietly deleted the thing it was meant to
+ * make adjustable. Both amounts are therefore capped at a fraction of the
+ * interval: a quarter off the floor, an eighth as delay. At fifteen minutes both
+ * caps are far above the constants and the behaviour is exactly what it was.
+ */
+function scaledJitter(minIntervalMs: number): { floorMs: number; delayMs: number } {
+  return {
+    floorMs: Math.min(JITTER_FLOOR_MS, Math.floor(minIntervalMs / 4)),
+    delayMs: Math.min(JITTER_DELAY_MS, Math.floor(minIntervalMs / 8)),
+  };
+}
 
 /** Nothing hangs forever. An unbounded fetch holds a function until the platform kills it. */
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -95,6 +132,29 @@ export class InboxPollTooSoonError extends Error {
 }
 
 /**
+ * A required environment variable is not set, so no request was attempted.
+ *
+ * A CLASS AND NOT A BARE `Error`, because the callers need to tell this apart
+ * from everything else and none of them can do it by reading a message. A
+ * missing `IG_SESSION_ID` is a deployment fact, not a runtime failure: the route
+ * turns it into a documented problem response, and scripts/watch-inbox.ts prints
+ * one line naming the variable and stops, rather than printing a stack trace and
+ * looping on it every five seconds forever.
+ *
+ * `variable` is the NAME. The value is never read into this error, never logged
+ * and never returned — `sessionid` is a bearer credential for the whole
+ * Instagram account, and an error message is the single most likely place a
+ * secret escapes, because it is the one string that gets logged, forwarded to an
+ * error tracker and pasted into a chat.
+ */
+export class InboxNotConfiguredError extends Error {
+  constructor(readonly variable: string) {
+    super(`${variable} is not set; the Instagram inbox poller cannot run.`);
+    this.name = 'InboxNotConfiguredError';
+  }
+}
+
+/**
  * The three cookies that make the request a logged-in one.
  *
  * ALL THREE ARE SECRETS. `sessionid` in particular is a bearer credential for the
@@ -114,10 +174,7 @@ function readCredentials(): { sessionId: string; csrfToken: string; dsUserId: st
 
 function required(name: string): string {
   const value = process.env[name];
-  // Names the variable, never the value — an error message is the most likely
-  // place a secret escapes, because it is the one string that gets logged,
-  // forwarded to an error tracker and pasted into a chat.
-  if (!value) throw new Error(`${name} is not set; the Instagram inbox poller cannot run.`);
+  if (!value) throw new InboxNotConfiguredError(name);
   return value;
 }
 
@@ -125,7 +182,32 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export type InstagramPollOptions = {
+  /**
+   * The floor between two polls, in milliseconds. Defaults to
+   * `DEFAULT_MIN_INTERVAL_MS` (fifteen minutes) and is clamped up to
+   * `HARD_MIN_INTERVAL_MS`.
+   *
+   * Pass it explicitly or not at all. A call site that wants a shorter loop is
+   * making a decision about somebody's Instagram account, and the number should
+   * be legible where that decision is taken.
+   */
+  minIntervalMs?: number;
+};
+
 export class InstagramPollSource implements InboxSource {
+  private readonly minIntervalMs: number;
+
+  constructor(options: InstagramPollOptions = {}) {
+    // Clamped, not validated-and-thrown: a caller that passed 0 meant "as fast as
+    // possible", and the honest answer to that is the fastest this source is
+    // willing to go, not a crash three layers down inside a loop.
+    this.minIntervalMs = Math.max(
+      HARD_MIN_INTERVAL_MS,
+      options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS,
+    );
+  }
+
   /**
    * `since` comes from the caller's cursor rather than from state read here, so
    * the route stays the one place that decides what has been processed. This
@@ -146,7 +228,8 @@ export class InstagramPollSource implements InboxSource {
       throw new InboxBreakerTrippedError(state.breakerReason ?? 'unknown');
     }
 
-    const floor = MIN_INTERVAL_MS - Math.floor(Math.random() * JITTER_FLOOR_MS);
+    const jitter = scaledJitter(this.minIntervalMs);
+    const floor = this.minIntervalMs - Math.floor(Math.random() * jitter.floorMs);
     if (state.lastAttemptAt) {
       const nextAllowed = new Date(state.lastAttemptAt.getTime() + floor);
       if (nextAllowed.getTime() > Date.now()) throw new InboxPollTooSoonError(nextAllowed);
@@ -155,7 +238,7 @@ export class InstagramPollSource implements InboxSource {
     // Before the request, so a pass that dies mid-flight has still spent its
     // budget. See markAttempt's comment.
     await markAttempt(INSTAGRAM_POLL_SOURCE);
-    await sleep(Math.floor(Math.random() * JITTER_DELAY_MS));
+    await sleep(Math.floor(Math.random() * jitter.delayMs));
 
     const payload = await this.request(sessionId, csrfToken, dsUserId);
     return parseInboxClips(payload, { selfUserId: dsUserId, since });

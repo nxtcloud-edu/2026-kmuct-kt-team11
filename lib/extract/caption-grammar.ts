@@ -205,6 +205,14 @@ function parseMarkedBlock(block: CaptionBlock): PlaceCandidate | null {
         address: null,
         hours_raw: null,
         menu_raw: null,
+        // A REGEX CANNOT CLASSIFY, AND THIS ONE DOES NOT PRETEND TO. Category is
+        // a judgement about what a place IS; everything else in this file is a
+        // substring of the caption. Guessing 'cafe' from the word 아메리카노 would
+        // be the hardcoded default that `PlaceCandidate.category` exists to
+        // refuse, only harder to find. Null sends the candidate to the reel-level
+        // fallback in lib/research/resolve-place.ts, or to review.
+        category: null,
+        category_confidence: null,
       };
       addressWindowOpen = true;
       continue;
@@ -268,6 +276,9 @@ function parseUnmarkedBlock(block: CaptionBlock): PlaceCandidate | null {
     address: rest && looksLikeAddress(rest) ? rest : null,
     hours_raw: null,
     menu_raw: null,
+    // See parseMarkedBlock: no classifier here, and none smuggled in.
+    category: null,
+    category_confidence: null,
   };
 
   // Without markers there is no window to close, so the scan stops at the first

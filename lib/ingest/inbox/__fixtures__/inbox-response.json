@@ -8,7 +8,12 @@
     "threads": [
       {
         "thread_id": "340282366841710300949128169529111111111",
-        "users": [{ "pk": "17841400000000001", "username": "fixture_sender_one" }],
+        "users": [
+          {
+            "pk": "17841400000000001",
+            "username": "fixture_sender_one"
+          }
+        ],
         "items": [
           {
             "item_id": "31000000000000000000000000000001",
@@ -23,29 +28,102 @@
                 "product_type": "clips",
                 "video_duration": 20.4,
                 "location": null,
-                "user": { "pk": "17841400000000099", "username": "fixture_creator" },
+                "user": {
+                  "pk": "17841400000000099",
+                  "username": "fixture_creator"
+                },
                 "image_versions2": {
                   "candidates": [
-                    { "url": "https://cdn.example.invalid/fixture/p1215x2160.jpg?oe=6900A1B2", "width": 1215, "height": 2160 },
-                    { "url": "https://cdn.example.invalid/fixture/p1080x1920.jpg?oe=6900A1B2", "width": 1080, "height": 1920 },
-                    { "url": "https://cdn.example.invalid/fixture/p720x1280.jpg?oe=6900A1B2", "width": 720, "height": 1280 },
-                    { "url": "https://cdn.example.invalid/fixture/p640x1138.jpg?oe=6900A1B2", "width": 640, "height": 1138 },
-                    { "url": "https://cdn.example.invalid/fixture/p480x853.jpg?oe=6900A1B2", "width": 480, "height": 853 },
-                    { "url": "https://cdn.example.invalid/fixture/p320x569.jpg?oe=6900A1B2", "width": 320, "height": 569 },
-                    { "url": "https://cdn.example.invalid/fixture/p240x427.jpg?oe=6900A1B2", "width": 240, "height": 427 },
-                    { "url": "https://cdn.example.invalid/fixture/s1080x1080.jpg?oe=6900A1B2", "width": 1080, "height": 1080 },
-                    { "url": "https://cdn.example.invalid/fixture/s750x750.jpg?oe=6900A1B2", "width": 750, "height": 750 },
-                    { "url": "https://cdn.example.invalid/fixture/s640x640.jpg?oe=6900A1B2", "width": 640, "height": 640 },
-                    { "url": "https://cdn.example.invalid/fixture/s480x480.jpg?oe=6900A1B2", "width": 480, "height": 480 },
-                    { "url": "https://cdn.example.invalid/fixture/s320x320.jpg?oe=6900A1B2", "width": 320, "height": 320 },
-                    { "url": "https://cdn.example.invalid/fixture/s240x240.jpg?oe=6900A1B2", "width": 240, "height": 240 },
-                    { "url": "https://cdn.example.invalid/fixture/s150x150.jpg?oe=6900A1B2", "width": 150, "height": 150 }
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p1215x2160.jpg?oe=6900A1B2",
+                      "width": 1215,
+                      "height": 2160
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p1080x1920.jpg?oe=6900A1B2",
+                      "width": 1080,
+                      "height": 1920
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p720x1280.jpg?oe=6900A1B2",
+                      "width": 720,
+                      "height": 1280
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p640x1138.jpg?oe=6900A1B2",
+                      "width": 640,
+                      "height": 1138
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p480x853.jpg?oe=6900A1B2",
+                      "width": 480,
+                      "height": 853
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p320x569.jpg?oe=6900A1B2",
+                      "width": 320,
+                      "height": 569
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/p240x427.jpg?oe=6900A1B2",
+                      "width": 240,
+                      "height": 427
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s1080x1080.jpg?oe=6900A1B2",
+                      "width": 1080,
+                      "height": 1080
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s750x750.jpg?oe=6900A1B2",
+                      "width": 750,
+                      "height": 750
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s640x640.jpg?oe=6900A1B2",
+                      "width": 640,
+                      "height": 640
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s480x480.jpg?oe=6900A1B2",
+                      "width": 480,
+                      "height": 480
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s320x320.jpg?oe=6900A1B2",
+                      "width": 320,
+                      "height": 320
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s240x240.jpg?oe=6900A1B2",
+                      "width": 240,
+                      "height": 240
+                    },
+                    {
+                      "url": "https://cdn.example.invalid/fixture/s150x150.jpg?oe=6900A1B2",
+                      "width": 150,
+                      "height": 150
+                    }
                   ]
                 },
                 "caption": {
                   "pk": "18000000000000001",
                   "text": "무더위에 어울리는 가상의 카페 3곳\n\n1.📍첫번째샘플카페 (Sample One) @fixture_cafe_one\n  서울 예시구 예시로1길 11\n🕰️매일 11:00-22:00\n📓샘플라떼 (4,800) 아메리카노 (4,200)\n\n2.📍두번째샘플카페 (Sample Two) @fixture_cafe_two\n  서울 예시구 예시로2길 22\n🕰️매일 12:00-23:00 월 휴무\n📓샘플티 (5,000)\n\n3.📍세번째샘플카페 (Sample Three) @fixture_cafe_three\n  서울 예시구 예시로3길 33\n🕰️화-일 10:30-21:00\n📓샘플케이크 (7,500)\n\n저장해두고 가보세요 🤍\n#가상카페 #예시태그 @fixture_creator"
-                }
+                },
+                "video_versions": [
+                  {
+                    "type": 101,
+                    "width": 720,
+                    "height": 1280,
+                    "url": "https://scontent.cdninstagram.com/v/t66/fixture-720.mp4?oe=6900FFFF"
+                  },
+                  {
+                    "type": 102,
+                    "width": 480,
+                    "height": 854,
+                    "url": "https://scontent.cdninstagram.com/v/t66/fixture-480.mp4?oe=6900FFFF"
+                  }
+                ]
               }
             }
           },
@@ -66,7 +144,9 @@
                 "pk": "3500000000000000003",
                 "code": "SELFSHARE003",
                 "product_type": "clips",
-                "caption": { "text": "우리 계정이 직접 보낸 릴 — 무시되어야 함" }
+                "caption": {
+                  "text": "우리 계정이 직접 보낸 릴 — 무시되어야 함"
+                }
               }
             }
           }
@@ -74,7 +154,12 @@
       },
       {
         "thread_id": "340282366841710300949128169529222222222",
-        "users": [{ "pk": "17841400000000002", "username": "fixture_sender_two" }],
+        "users": [
+          {
+            "pk": "17841400000000002",
+            "username": "fixture_sender_two"
+          }
+        ],
         "items": [
           {
             "item_id": "31000000000000000000000000000004",
@@ -87,15 +172,51 @@
               "product_type": "clips",
               "image_versions2": {
                 "candidates": [
-                  { "url": "https://cdn.example.invalid/fixture/s1080x1080.jpg?oe=6900A1B2", "width": 1080, "height": 1080 },
-                  { "url": "https://cdn.example.invalid/fixture/f640x1138.jpg?oe=6900A1B2", "width": 640, "height": 1138 },
-                  { "url": "https://cdn.example.invalid/fixture/f480x853.jpg?oe=6900A1B2", "width": 480, "height": 853 },
-                  { "url": "", "width": 1215, "height": 2160 },
-                  { "width": 1215, "height": 2160 },
-                  { "url": "https://cdn.example.invalid/fixture/nodims.jpg?oe=6900A1B2" }
+                  {
+                    "url": "https://cdn.example.invalid/fixture/s1080x1080.jpg?oe=6900A1B2",
+                    "width": 1080,
+                    "height": 1080
+                  },
+                  {
+                    "url": "https://cdn.example.invalid/fixture/f640x1138.jpg?oe=6900A1B2",
+                    "width": 640,
+                    "height": 1138
+                  },
+                  {
+                    "url": "https://cdn.example.invalid/fixture/f480x853.jpg?oe=6900A1B2",
+                    "width": 480,
+                    "height": 853
+                  },
+                  {
+                    "url": "",
+                    "width": 1215,
+                    "height": 2160
+                  },
+                  {
+                    "width": 1215,
+                    "height": 2160
+                  },
+                  {
+                    "url": "https://cdn.example.invalid/fixture/nodims.jpg?oe=6900A1B2"
+                  }
                 ]
               },
-              "caption": null
+              "caption": null,
+              "video_versions": [
+                "not-an-object",
+                {
+                  "type": 101,
+                  "width": 720,
+                  "height": 1280
+                },
+                {
+                  "url": "data:video/mp4;base64,AAAA"
+                },
+                {
+                  "type": 103,
+                  "url": "https://scontent.cdninstagram.com/v/t66/flat-360.mp4?oe=6900FFFF"
+                }
+              ]
             }
           },
           {
@@ -103,7 +224,14 @@
             "user_id": "17841400000000002",
             "timestamp": 1758200000000000,
             "item_type": "clip",
-            "clip": { "clip": { "product_type": "clips", "caption": { "text": "no code, no pk" } } }
+            "clip": {
+              "clip": {
+                "product_type": "clips",
+                "caption": {
+                  "text": "no code, no pk"
+                }
+              }
+            }
           },
           {
             "item_id": "31000000000000000000000000000006",
@@ -115,7 +243,9 @@
                 "pk": "3500000000000000006",
                 "code": "OLDSHARE006",
                 "product_type": "clips",
-                "caption": { "text": "커서보다 오래된 공유" }
+                "caption": {
+                  "text": "커서보다 오래된 공유"
+                }
               }
             }
           }

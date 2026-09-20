@@ -27,7 +27,16 @@
 import { GoogleGenAI, Type, type Schema } from '@google/genai';
 
 import { countNumberedBlocks, deriveConfidence } from './caption-grammar';
-import type { CaptionExtraction, PlaceCandidate } from './types';
+import type { CaptionExtraction, PlaceCandidate, PlaceCandidateCategory } from './types';
+
+/**
+ * The enum the model is constrained to, and the list the normaliser checks
+ * against. One array so the prompt and the guard can never disagree — a model
+ * answering `'bar'` because the schema and the parser were edited apart is the
+ * failure this avoids.
+ */
+const CATEGORIES = ['cafe', 'restaurant', 'exhibition', 'shop', 'activity'] as const;
+const CATEGORY_CONFIDENCES = ['low', 'medium', 'high'] as const;
 
 /**
  * Pinned, not `gemini-flash-lite-latest`.
@@ -86,9 +95,32 @@ const PLACE_SCHEMA: Schema = {
       nullable: true,
       description: 'Menu items and prices as raw text, copied verbatim, e.g. "티그레 (4,200) 아메리카노 (4,800)".',
     },
+    // The ONE field on this schema that is a judgement rather than a copy. See
+    // `PlaceCandidate.category` in ./types.ts for why it is asked here at all
+    // instead of being defaulted downstream.
+    category: {
+      type: Type.STRING,
+      nullable: true,
+      enum: [...CATEGORIES],
+      description:
+        'What kind of place this is. Null when it is none of these — a hotel, a park, a hiking trail, a festival. Never guess to fill the field.',
+    },
+    category_confidence: {
+      type: Type.STRING,
+      nullable: true,
+      enum: ['low', 'medium', 'high'],
+      description:
+        'high: the caption or the menu says outright what it is. medium: strongly implied. low: a guess from the name alone. Null when category is null.',
+    },
   },
-  required: ['ordinal', 'name', 'name_alt', 'handle', 'address', 'hours_raw', 'menu_raw'],
-  propertyOrdering: ['ordinal', 'name', 'name_alt', 'handle', 'address', 'hours_raw', 'menu_raw'],
+  required: [
+    'ordinal', 'name', 'name_alt', 'handle', 'address', 'hours_raw', 'menu_raw',
+    'category', 'category_confidence',
+  ],
+  propertyOrdering: [
+    'ordinal', 'name', 'name_alt', 'handle', 'address', 'hours_raw', 'menu_raw',
+    'category', 'category_confidence',
+  ],
 };
 
 const EXTRACTION_SCHEMA: Schema = {
@@ -122,7 +154,9 @@ Rules:
 - Return exactly one object per numbered entry, in the order they appear, using the creator's own number as "ordinal".
 - Copy values verbatim. Do not translate, romanise, normalise, reformat, complete or correct anything.
 - A field the caption does not state is null. Never infer an address from a venue name or from your own knowledge of the place.
-- Emoji markers are a convention, not a guarantee. If an entry uses dashes or plain text instead, read it the same way.`;
+- Emoji markers are a convention, not a guarantee. If an entry uses dashes or plain text instead, read it the same way.
+
+"category" is the one field you decide rather than copy, and it is the only one. Judge it from what the entry and the caption's lead-in actually say — a 카페 list, a menu of 아메리카노 and 디저트, a 전시 running until a date, a 소품샵. Set "category_confidence" to "high" only when the text says what kind of place it is, "medium" when it is strongly implied, and "low" when you are reading the venue name alone. If it is none of cafe, restaurant, exhibition, shop or activity — a hotel, a park, a trail, a festival — return null for both. A wrong category is worse than no category; do not stretch one of the five to cover a place that is not one of them.`;
 
 /** What the model is constrained to return. Kept separate from `PlaceCandidate` — one is a wire shape, the other is ours. */
 type RawPlace = Partial<Record<keyof PlaceCandidate, unknown>>;
@@ -148,6 +182,23 @@ function normalise(raw: RawPlace, index: number): PlaceCandidate | null {
 
   const ordinal = Number(raw.ordinal);
 
+  // Checked against the list rather than cast. `responseSchema` constrains
+  // decoding, but a schema is not a parser: an enum that a future model version
+  // widens, or a value that arrives capitalised, must land as null and cost the
+  // candidate a review — never as a string that is not one of the five and that
+  // `places.category`'s CHECK will reject three frames later.
+  const rawCategory = text(raw.category)?.toLowerCase();
+  const category = (CATEGORIES as readonly string[]).includes(rawCategory ?? '')
+    ? (rawCategory as PlaceCandidateCategory)
+    : null;
+
+  const rawCategoryConfidence = text(raw.category_confidence)?.toLowerCase();
+  const categoryConfidence = (CATEGORY_CONFIDENCES as readonly string[]).includes(
+    rawCategoryConfidence ?? '',
+  )
+    ? (rawCategoryConfidence as NonNullable<PlaceCandidate['category_confidence']>)
+    : null;
+
   return {
     // Fall back to the array position only when the model lost the number
     // entirely; an ordinal is how a candidate is matched back to the caption a
@@ -159,6 +210,12 @@ function normalise(raw: RawPlace, index: number): PlaceCandidate | null {
     address: text(raw.address),
     hours_raw: text(raw.hours_raw),
     menu_raw: text(raw.menu_raw),
+    category,
+    // Null exactly when the category is, so `category_confidence: 'high'` can
+    // never describe a category nobody has. A model that returned a confidence
+    // for a category the guard above rejected was confident about the wrong
+    // thing.
+    category_confidence: category ? (categoryConfidence ?? 'low') : null,
   };
 }
 
