@@ -172,9 +172,18 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
                     type="button"
                     onClick={() => patch({ mbti: t })}
                     aria-pressed={selected}
-                    // Selection is an outline, not an inverted fill. The art is
-                    // transparent, so filling the tile with ink would swallow the
-                    // dark characters — ISTJ and INTJ are near-black themselves.
+                    // Selection is an outline, not an inverted fill. Fifteen of the
+                    // sixteen tiles carry their own saturated background, so an ink
+                    // fill would fight the art rather than frame it. INTP is the
+                    // exception and ships on transparency, which is why it reads as
+                    // a figure on the card instead of a coloured tile.
+                    //
+                    // These PNGs also arrived with gAMA+sRGB chunks, which sharp
+                    // mis-composites through `next/image`: every background came out
+                    // pure black while the file on disk was correct. The chunks are
+                    // stripped in `public/mbti/`. Re-exporting the art from a design
+                    // tool will reintroduce them — strip again, and clear
+                    // `.next/dev/cache/images`, or the old black copies survive.
                     className={`flex flex-col items-center gap-[var(--space-4)] rounded-[var(--radius-xl)] bg-surface-1 p-[var(--space-5)] transition-opacity duration-200 active:opacity-[var(--press-opacity)] ${
                       selected ? 'outline-2 -outline-offset-2 outline-ink' : ''
                     }`}
