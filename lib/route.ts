@@ -40,8 +40,13 @@ export function withRoute<Args extends unknown[]>(
       if (pg?.code === '23505') {
         if (pg.constraint === 'saved_places_no_duplicate_idx') return problem('duplicate-saved-place');
         if (pg.constraint === 'users_email_key') return problem('email-already-linked');
-        // A duplicate Instagram handle is a refused claim, not a failure: the index
-        // exists so two accounts can never both be candidates for one sender.
+        // A TRANSITIONAL GUARD, not the live rule. Migration 20260920000013 drops
+        // the uniqueness, after which this can never fire — several accounts may
+        // claim one handle on purpose. It stays until every database has that
+        // migration, because a deploy reaches production before a hand-run
+        // `psql -f` does, and in that window the index still raises 23505.
+        // Without this branch that window turns a clean, translated 409 into an
+        // unhandled 500, which is a worse answer to the same question.
         if (pg.constraint === 'users_instagram_handle_lower_idx')
           return problem('instagram-handle-taken');
         if (pg.constraint === 'group_members_one_owner_idx') return problem('last-owner');

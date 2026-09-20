@@ -1,4 +1,4 @@
-import { queryOne } from '../db';
+import { query, queryOne } from '../db';
 
 /**
  * Which Gaja account a shared reel belongs to — and, when nobody has answered
@@ -27,25 +27,29 @@ import { queryOne } from '../db';
  *      you must control that Instagram account.
  *   2. `users.instagram_handle` IS typed, by a signed-in Gaja user, through
  *      `PATCH /api/me`. It is a claim.
- *   3. `users_instagram_handle_lower_idx` is UNIQUE, so at most one Gaja account
- *      can be claiming any given handle.
+ *   3. The claim is NOT exclusive. Migration 20260920000013 dropped the unique
+ *      index, so any number of Gaja accounts may claim one handle.
  *
- * Together: the DM proves control of the Instagram account, the claim names the
- * Gaja account, and uniqueness means there is never a choice to make between two
- * candidates. What is missing versus the doc's ceremony is the one-time link —
- * the step where the owner of the Gaja account confirms the binding at the
- * moment it is made.
+ * Together: the DM proves control of the Instagram account and the claims name
+ * the Gaja accounts. What is missing versus the doc's ceremony is the one-time
+ * link — the step where the owner of the Gaja account confirms the binding at
+ * the moment it is made.
  *
- * WHAT THAT COSTS, PLAINLY. A person who types someone else's handle into
- * onboarding first will receive that person's shared reels, and the victim's own
- * claim is refused with a 409 because the squatter holds it. The webhook design
- * had the same squatting problem and no such payoff, because a held handle
- * routed nothing. Here it routes reels. That is a real, accepted regression in
- * the security posture, taken deliberately to make ingestion work for anybody
- * other than one hand-bound account. The mitigations are the ones the schema
- * already has — one claimant per handle, and `instagram_linked_at` left NULL
- * below so a handle-bound row stays in the evictable tier that a real
- * webhook-proven binding outranks.
+ * WHAT THAT COSTS, PLAINLY. Uniqueness used to mean routing never had a choice
+ * to make. It now has one, and it declines to choose: a reel goes to EVERY
+ * account claiming the sender's handle. So a person who types a stranger's id
+ * receives that stranger's shared reels — captions, links and all — and neither
+ * of them is told. Under the old index a squatter at least had to get there
+ * first and the real owner got a 409; now both succeed and both get the reels.
+ *
+ * That is a real, accepted regression in the security posture, taken
+ * deliberately: the index was refusing people who had never signed up, and a
+ * group of testers sharing one Instagram account is a world uniqueness cannot
+ * model. The mitigation left is `instagram_linked_at`, still NULL below, which
+ * keeps a handle-bound row in the tier a genuine webhook-proven binding evicts.
+ * If this product ever has users who are strangers to each other, the fix is
+ * the confirmation step, not a return to uniqueness — uniqueness never proved
+ * ownership, it only rationed the claim.
  *
  * UNRECOGNISED SENDER: THE REEL IS STILL DROPPED. docs/gaja/instagram-binding.md
  * leaves the choice between drop-and-reply and park-the-payload open, and
@@ -87,81 +91,100 @@ const HANDLE_SHAPE = /^[a-z0-9._]{1,30}$/;
  */
 const UNIQUE_VIOLATION = '23505';
 
+/**
+ * EVERY account the reel belongs to — plural, since 2026-09-20.
+ *
+ * `instagram_handle` is no longer unique (migration 20260920000013). Several
+ * Gaja accounts may claim one Instagram id, because several testers share one,
+ * and one person signs in from more than one account. So routing no longer picks
+ * a winner: a shared reel is delivered to every account claiming the sender's
+ * handle, plus the account bound to the sender's igsid if there is one.
+ *
+ * Returns `[]` for an unrecognised sender — the caller drops, as before.
+ */
+export async function resolveSenderToUsers(
+  igsid: string,
+  senderUsername?: string | null,
+): Promise<ResolvedSender[]> {
+  const handle = senderUsername?.trim().toLowerCase() ?? '';
+  const usable = HANDLE_SHAPE.test(handle) ? handle : '';
+
+  // ── 1. Bind, opportunistically ───────────────────────────────────────────
+  //
+  // Still ONE STATEMENT, for the reason it always was: two reels from the same
+  // new sender in one pass must not both decide to bind. It matters less than it
+  // did — the handle lookup below finds the account whether or not this lands —
+  // but it keeps the igsid fast path warm for a sender whose username Instagram
+  // stops giving us, and it is what `bound_by_handle` counts.
+  //
+  // `limit 1` inside the subselect is the ONE thing that changed here. With the
+  // unique index gone, `lower(instagram_handle) = $2` can match several rows;
+  // `users.igsid` is still `text unique`, so exactly one of them may hold it.
+  // Picking the oldest unbound claimant is arbitrary but stable — it does not
+  // change who receives the reel, only who owns the shortcut.
+  let boundId: string | null = null;
+  if (usable !== '') {
+    try {
+      const claimed = await queryOne<{ id: string }>(
+        `update users u
+            set igsid = $1
+          where u.id = (
+                  select c.id from users c
+                   where lower(c.instagram_handle) = $2
+                     and c.igsid is null
+                   order by c.created_at
+                   limit 1
+                )
+            and not exists (select 1 from users o where o.igsid = $1)
+        returning u.id`,
+        [igsid, usable],
+      );
+      boundId = claimed?.id ?? null;
+    } catch (e) {
+      // Lost the race at the igsid index. The read below finds the winner.
+      if (!isUniqueViolation(e)) throw e;
+    }
+  }
+
+  // ── 2. Everyone ──────────────────────────────────────────────────────────
+  //
+  // The igsid holder AND every handle claimant, in one read, deduped by the
+  // primary key. Ordered so the result is stable across passes rather than
+  // whatever order the planner felt like.
+  const rows = await query<{ id: string }>(
+    `select id from users
+      where igsid = $1
+         or ($2 <> '' and lower(instagram_handle) = $2)
+      order by created_at`,
+    [igsid, usable],
+  );
+
+  if (rows.length === 0) return [];
+
+  if (boundId) {
+    console.log(
+      `[ingest] bound @${usable} to a Gaja account by claimed handle` +
+        (rows.length > 1 ? `; ${rows.length} accounts claim it and all will receive the reel` : ''),
+    );
+  }
+
+  return rows.map((r) => ({ userId: r.id, boundByHandle: r.id === boundId }));
+}
+
+/**
+ * The first recipient, or null. Kept because the one-off scripts and the
+ * verification suite are written against it, and because "did this sender
+ * resolve at all" is still a fair question to ask.
+ *
+ * DO NOT use it in the poller. It answers with one account, and answering with
+ * one account is exactly what stopped being correct.
+ */
 export async function resolveSenderToUser(
   igsid: string,
   senderUsername?: string | null,
 ): Promise<ResolvedSender | null> {
-  // ── 1. The binding, if one exists ────────────────────────────────────────
-  // `queryOne<T>` is an unchecked assertion, not a validated cast: a column named
-  // in the type and missing from this select list is `undefined` at runtime with
-  // nothing from tsc. That is the bug lib/social-identity.ts shipped once. One
-  // column, selected, spelled the same.
-  const bound = await queryOne<{ id: string }>(`select id from users where igsid = $1`, [igsid]);
-  if (bound) return { userId: bound.id, boundByHandle: false };
-
-  // ── 2. The claim, if the payload named one ───────────────────────────────
-  const handle = senderUsername?.trim().toLowerCase() ?? '';
-  if (!HANDLE_SHAPE.test(handle)) return null;
-
-  // ── 3. Bind, in ONE STATEMENT ────────────────────────────────────────────
-  //
-  // NOT A SELECT FOLLOWED BY AN UPDATE, and that is the whole reason this is
-  // written as one query. Two reels from the same new sender arrive in the same
-  // pass, or two passes overlap: a read-then-write lets both see `igsid is null`,
-  // both decide to bind, and the second one overwrite a binding it never checked
-  // again. Every condition is in the `where`, so the second statement matches
-  // nothing and the second caller falls through to the re-read below.
-  //
-  // THE THREE CONDITIONS, each of which is load-bearing:
-  //   - the handle matches, case-insensitively, through
-  //     `users_instagram_handle_lower_idx`;
-  //   - that account has NO igsid yet, so a real binding — one from a webhook, or
-  //     an earlier DM — can never be overwritten by a later handle claim;
-  //   - no OTHER account already holds this igsid, so one Instagram account
-  //     cannot end up bound to two Gaja users. `users.igsid` is `unique`, which
-  //     enforces this at the index whatever this clause does; the clause is here
-  //     so the ordinary case is a no-op rather than an exception.
-  //
-  // `instagram_linked_at` IS DELIBERATELY NOT SET. The column means "proof was
-  // obtained" and what happened here is a handle claim corroborated by a DM, not
-  // the confirmation ceremony docs/gaja/instagram-binding.md describes. Leaving
-  // it NULL keeps this row in the tier that migration 20260920000006 calls
-  // disposable — the one a genuine, webhook-proven binding is allowed to evict.
-  // A timestamp written here would quietly promote a weaker fact to a stronger
-  // one, which is the exact failure this whole file is careful about.
-  let claimed: { id: string } | null = null;
-  try {
-    claimed = await queryOne<{ id: string }>(
-      `update users u
-          set igsid = $1
-        where lower(u.instagram_handle) = lower($2)
-          and u.igsid is null
-          and not exists (select 1 from users o where o.igsid = $1)
-      returning u.id`,
-      [igsid, handle],
-    );
-  } catch (e) {
-    // Lost the race at the index. Not an error worth failing a clip over: the
-    // winner bound the same sender to the same account a millisecond ago, and
-    // the re-read below finds it.
-    if (!isUniqueViolation(e)) throw e;
-  }
-
-  if (claimed) {
-    // The handle is public — it is an @name, and it is the one thing an operator
-    // needs in order to check that a binding is the one they expected. The
-    // caption, the reel and the thread id are not logged anywhere near it.
-    console.log(`[ingest] bound @${handle} to a Gaja account by claimed handle`);
-    return { userId: claimed.id, boundByHandle: true };
-  }
-
-  // ── 4. Re-read, for the racer that lost ──────────────────────────────────
-  // The update matched nothing. Either nobody claims this handle — the ordinary
-  // unknown sender, dropped by the caller — or a concurrent pass bound it
-  // between step 1 and step 3. One more read separates the two, and it is the
-  // difference between dropping a reel and filing it correctly.
-  const now = await queryOne<{ id: string }>(`select id from users where igsid = $1`, [igsid]);
-  return now ? { userId: now.id, boundByHandle: false } : null;
+  const all = await resolveSenderToUsers(igsid, senderUsername);
+  return all[0] ?? null;
 }
 
 function isUniqueViolation(e: unknown): boolean {

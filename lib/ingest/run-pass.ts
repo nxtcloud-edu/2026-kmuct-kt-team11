@@ -63,7 +63,7 @@ import {
   InboxPollTooSoonError,
   InstagramPollSource,
 } from './inbox/instagram-poll';
-import { resolveSenderToUser } from './route-sender';
+import { resolveSenderToUsers } from './route-sender';
 import { INSTAGRAM_POLL_SOURCE, getIngestState, markError, markOk } from './state';
 
 export type IngestPassSummary = {
@@ -238,7 +238,7 @@ export async function runIngestPass(
       // `users.instagram_handle` claim and bound on the spot. The trust model
       // that licenses this — and what it costs — is written out in
       // lib/ingest/route-sender.ts. It is not a detail of this loop.
-      const routed = await resolveSenderToUser(clip.igsid, clip.senderUsername);
+      const routed = await resolveSenderToUsers(clip.igsid, clip.senderUsername);
 
       // UNRECOGNISED SENDER: DROPPED, COUNTED, LOGGED, NEVER SAVED. The drop is
       // a product requirement, not a shortcut — lib/ingest/route-sender.ts
@@ -251,7 +251,7 @@ export async function runIngestPass(
       // account screen, and until now that fact existed nowhere. The @handle is
       // public and is the only thing logged: not the caption, not the reel, not
       // the thread.
-      if (!routed) {
+      if (routed.length === 0) {
         summary.dropped_unknown_sender++;
         console.warn(
           `[ingest] no Gaja account claims @${clip.senderUsername ?? '(handle unknown)'}; ` +
@@ -262,7 +262,7 @@ export async function runIngestPass(
         continue;
       }
       summary.routed++;
-      if (routed.boundByHandle) summary.bound_by_handle++;
+      if (routed.some((r) => r.boundByHandle)) summary.bound_by_handle++;
 
       // ── 3, 4 AND 5, IN lib/ingest/ingest-clip.ts ───────────────────────────
       //
@@ -274,20 +274,35 @@ export async function runIngestPass(
       //
       // It throws when the analysis does not land, having already moved the row
       // off `pending` — the outer catch below counts it and stops the cursor.
-      const outcome = await ingestClip(routed.userId, clip);
+      // ONE CLIP, EVERY RECIPIENT. `instagram_handle` stopped being unique
+      // (migration 20260920000013), so a sender's handle can name several Gaja
+      // accounts and each of them gets the reel. `reels` is unique on
+      // (user_id, reel_video_id), so this is one row per account and a re-run
+      // writes nothing new.
+      //
+      // IT IS A LOOP AND NOT A FAN-OUT OF ONE ANALYSIS, which is worth being
+      // honest about: `ingestClip` runs the extraction ladder itself, so N
+      // recipients cost N model calls on the same caption. N is 1 for every
+      // sender who is not sharing an account, which is the case this stays cheap
+      // for; sharing a handle is what costs, and the people sharing one asked
+      // to. Hoisting the analysis out of `ingestClip` would fix it and would
+      // also fork the definition of a saved reel away from `POST /api/reels`,
+      // which is the thing that file exists to prevent.
+      for (const recipient of routed) {
+        const outcome = await ingestClip(recipient.userId, clip);
 
-      if (outcome.alreadySaved) {
-        summary.already_existed++;
-        processedThrough = clip.sharedAt;
-        continue;
+        if (outcome.alreadySaved) {
+          summary.already_existed++;
+          continue;
+        }
+
+        summary.saved++;
+        if (outcome.decidedByVideo) summary.decided_by_video++;
+        summary.places_resolved += outcome.resolved;
+        summary.places_unresolved += outcome.extracted - outcome.resolved;
+        if (outcome.thumb === 'captured') summary.thumbs_captured++;
+        else if (outcome.thumb === 'failed') summary.thumbs_failed++;
       }
-
-      summary.saved++;
-      if (outcome.decidedByVideo) summary.decided_by_video++;
-      summary.places_resolved += outcome.resolved;
-      summary.places_unresolved += outcome.extracted - outcome.resolved;
-      if (outcome.thumb === 'captured') summary.thumbs_captured++;
-      else if (outcome.thumb === 'failed') summary.thumbs_failed++;
 
       processedThrough = clip.sharedAt;
     } catch (e) {
