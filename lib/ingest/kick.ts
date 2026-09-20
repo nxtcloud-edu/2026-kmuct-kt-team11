@@ -77,7 +77,26 @@ import { runIngestPass } from './run-pass';
  * daily cron and a fraction of the traffic. That is the first dial to reach for
  * if the account starts seeing challenges.
  */
-export const OPPORTUNISTIC_MIN_INTERVAL_MS = 5_000;
+export const OPPORTUNISTIC_MIN_INTERVAL_MS = 60_000;
+//
+// WAS 5_000, AND THE RISK WRITTEN ABOVE CAME TRUE WITHIN THE HOUR. On
+// 2026-09-20 the account's session went from serving the inbox at 08:13:04 to
+// answering `302 /accounts/login/` at 08:14:53, and the breaker tripped with
+// `http-redirect-to-login`. Ingestion stopped dead until the cookie was
+// re-captured by hand out of a browser, which is the one repair no code here
+// can perform.
+//
+// Causation is NOT proved and should not be claimed: a browser `sessionid`
+// replayed from a datacentre IP is invalidated by Instagram readily enough on
+// its own, and this one had been alive for hours before the opportunistic pass
+// existed. What is certain is that 5s put roughly 180x the poller's default
+// request rate through that cookie, which can only have made it likelier.
+//
+// 60s is still 15x fresher than the 15-minute default and a twelfth of the
+// traffic that preceded the lockout. A reel now appears within a minute of
+// being shared instead of within five seconds, which nobody watching a phone
+// will notice, and the account keeps working — which they very much would.
+
 
 /**
  * Logged once per instance rather than once per skipped pass.
