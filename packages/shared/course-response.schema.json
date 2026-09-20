@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kmu-hackathon.team11/schemas/course-response.schema.json",
+  "title": "데이트 코스 생성 응답",
+  "description": "MBTI 캐릭터 기반 데이트 코스 에이전트의 최종 API 응답 계약. LLM 초안은 course-draft.schema.json을 사용한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mbti",
+    "characterName",
+    "courseTitle",
+    "courseSummary",
+    "totalDurationMin",
+    "estimatedBudgetPerPerson",
+    "budgetNote",
+    "budgetOverrun",
+    "tasteVectorConfidence",
+    "savedPlaceCount",
+    "externalRatio",
+    "stops",
+    "mbtiRationale",
+    "verificationRequired",
+    "cautions",
+    "warnings"
+  ],
+  "properties": {
+    "mbti": {
+      "type": "string",
+      "pattern": "^[EI][SN][TF][JP]$",
+      "description": "사용자가 선택한 캐릭터의 MBTI 코드"
+    },
+    "characterName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "mbti-course-profile.json의 types[mbti].characterName과 일치해야 한다."
+    },
+    "courseTitle": { "type": "string", "minLength": 1 },
+    "courseSummary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "코스 전체를 1~2문장으로 요약한다."
+    },
+    "totalDurationMin": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "이동 시간과 웨이팅 예상 시간을 포함한 총 소요 시간(분)"
+    },
+    "estimatedBudgetPerPerson": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "가격 정보가 있는 정류장만 합산한 1인 예산(원). 합산 가능한 정류장이 없으면 null."
+    },
+    "budgetNote": {
+      "type": ["string", "null"],
+      "description": "예산 합산에서 제외한 정류장이 있을 때 그 사실을 밝힌다."
+    },
+    "budgetOverrun": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amount", "ratio"],
+          "properties": {
+            "amount": { "type": "number", "minimum": 0 },
+            "ratio": { "type": "number", "minimum": 0 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "tasteVectorConfidence": {
+      "type": ["string", "null"],
+      "enum": ["high", "medium", "low", null],
+      "description": "입력으로 받은 취향 벡터 신뢰도를 그대로 반영한다."
+    },
+    "savedPlaceCount": { "type": "integer", "minimum": 0 },
+    "externalRatio": { "type": "number", "minimum": 0, "maximum": 1 },
+    "stops": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "items": { "$ref": "#/$defs/stop" }
+    },
+    "mbtiRationale": {
+      "type": "string",
+      "minLength": 1,
+      "description": "코스 전체의 구성 의도를 2~3문장으로 설명한다. 사용자의 성격을 단정하는 표현을 쓰지 않는다."
+    },
+    "verificationRequired": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "가격, 영업시간, 예약 조건 등 사용자가 직접 확인해야 하는 항목"
+    },
+    "cautions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "코스 전체에 해당하는 주의사항"
+    },
+    "warnings": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["order", "slot", "placeId", "name", "category", "source", "startTime", "endTime", "durationMin", "estimatedCostPerPerson", "why", "moveToNext", "reservationAction", "alternatives", "cautions", "sponsoredNotice"],
+      "properties": {
+        "order": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "slot": {
+          "type": "string",
+          "enum": ["meal", "cafe_dessert", "experience", "finale"]
+        },
+        "placeId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "candidatePlaces에 존재하는 placeId여야 한다."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "category": {
+          "type": ["string", "null"],
+          "enum": [
+            "restaurant",
+            "cafe_dessert",
+            "travel_attraction",
+            "accommodation",
+            "culture_exhibition",
+            "activity_experience",
+            "shopping_product",
+            "beauty_wellness",
+            null
+          ],
+          "description": "transcript-extraction.json의 contentCategories 키"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["saved", "external"]
+        },
+        "startTime": {
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+          "description": "서버 스케줄러가 계산한 시작 시각"
+        },
+        "endTime": {
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "durationMin": { "type": "integer", "minimum": 0 },
+        "estimatedCostPerPerson": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "후보 데이터의 price.perPerson만 사용한다. 없으면 null."
+        },
+        "why": { "$ref": "#/$defs/why" },
+        "moveToNext": {
+          "oneOf": [{ "$ref": "#/$defs/move" }, { "type": "null" }],
+          "description": "마지막 정류장은 null"
+        },
+        "reservationAction": {
+          "type": ["string", "null"],
+          "description": "예약이 필요한 장소일 때 예약 수단을 적는다."
+        },
+        "alternatives": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/alternative" },
+          "description": "사용자가 즉시 교체할 수 있는 대안 2개"
+        },
+        "cautions": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "후보 데이터의 cautions와 constraints에서 온 주의사항. 생략하거나 완화하지 않는다."
+        },
+        "sponsoredNotice": {
+          "type": ["string", "null"],
+          "description": "후보의 sponsored가 true일 때만 채운다."
+        }
+      }
+    },
+    "why": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tasteEvidence", "mbtiFit"],
+      "description": "추천 근거를 출처별로 분리한다. 앱에서 세 가지를 따로 노출하기 위한 구조다.",
+      "properties": {
+        "tasteEvidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "사용자가 저장한 영상에서 나온 태그 근거. 최소 1개 필수이며 비어 있으면 이 정류장은 코스에 넣을 수 없다."
+        },
+        "similarUserEvidence": {
+          "type": ["string", "null"],
+          "description": "개인화 MVP에서는 null. 향후 유사 사용자 신호 도입 시 사용한다."
+        },
+        "mbtiFit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "이 장소가 캐릭터의 코스 구조에 어떻게 맞물리는지. 사용자의 성격을 단정하지 않는다."
+        }
+      }
+    },
+    "move": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "minutes", "estimated"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["도보", "대중교통", "택시"] },
+        "minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120,
+          "description": "요청별 이동 시간 상한은 서버 검증기가 적용한다."
+        },
+        "estimated": { "type": "boolean" }
+      }
+    },
+    "alternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["placeId", "name", "reason"],
+      "properties": {
+        "placeId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "candidatePlaces에 존재하는 placeId여야 한다."
+        },
+        "name": { "type": ["string", "null"] },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

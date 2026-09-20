@@ -20,6 +20,39 @@ Slice 1's screens are deliberately minimal. The IA and screen specs belong to st
 of `.agents/run-order.md` (`product-designer`), which has not run — what exists is the
 chassis, not the design.
 
+## Transcript 정보 추출 설정
+
+릴스·틱톡 transcript의 태그와 추천 정보를 추출할 때는
+[`packages/shared/transcript-extraction.json`](packages/shared/transcript-extraction.json)을 공통 설정으로 사용합니다.
+
+설정에는 실제 해시태그의 `지역+업종`, `동행자+활동`, `상황+목적` 패턴과 추천 대상별
+매핑 사전이 포함되어 있습니다. LLM은 이를 기준으로 위치, 가격, 추천 대상, 주의사항,
+광고 여부와 원문 근거를 구조화해 반환합니다.
+
+## MBTI 캐릭터 기반 데이트 코스 생성
+
+추출된 장소 정보와 사용자 취향, 유사 사용자 신호를 받아 데이트 코스를 구성하는 단계입니다.
+사용자가 온보딩에서 선택한 MBTI 캐릭터에 따라 서로 다른 코스가 나오도록 설계했습니다.
+
+| 파일 | 역할 |
+|---|---|
+| [`docs/mbti-date-course-prompt-plan.md`](docs/mbti-date-course-prompt-plan.md) | 설계 계획서. 왜 이렇게 만들었는지 |
+| [`packages/shared/mbti-course-profile.json`](packages/shared/mbti-course-profile.json) | 4개 축 정의, 16유형 캐릭터, 점수 배합 규칙 |
+| [`packages/shared/prompts/date-course-system.md`](packages/shared/prompts/date-course-system.md) | 시스템 프롬프트 원본 (L0~L5) |
+| [`packages/shared/course-response.schema.json`](packages/shared/course-response.schema.json) | 코스 응답 JSON 스키마 |
+| [`packages/shared/src/`](packages/shared/src/) | 프롬프트 빌더, 사전 랭커, 응답 검증기, 평가 하니스 |
+| [`packages/shared/__fixtures__/course-cases/`](packages/shared/__fixtures__/course-cases/) | 회귀 테스트 픽스처와 측정 항목 |
+
+설치·사용법과 Next.js 연동 방법은 [`packages/shared/README.md`](packages/shared/README.md)에 있습니다.
+
+핵심 설계 원칙 두 가지입니다.
+
+1. **시스템 프롬프트는 하나다.** MBTI는 E/I, S/N, T/F, J/P 네 축의 파라미터로 주입하며
+   유형별 프롬프트 전문을 따로 두지 않습니다.
+2. **MBTI는 사실을 바꾸지 않는다.** 랭킹 가중치, 코스 구조, 설명 톤에만 영향을 주고
+   가격·영업시간 같은 사실은 추출 데이터만 따릅니다. 모든 정류장은 사용자 영상에서 나온
+   취향 근거를 최소 1개 가져야 합니다.
+
 ## Running it
 
 Needs Node 20+, Docker (for local Postgres), and the Supabase CLI.

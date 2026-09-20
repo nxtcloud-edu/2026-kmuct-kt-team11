@@ -1,0 +1,137 @@
+{
+  "fixtureId": "taste-d-low-confidence",
+  "note": "합성 데이터입니다. 실제 상호·가격이 아니며 프롬프트 회귀 테스트 용도로만 사용합니다.",
+  "description": "영상 2개만 저장한 신규 사용자. mbti-course-profile.json의 blending.lowConfidenceFallback 경로와, 취향 근거가 빈약할 때 MBTI가 코스를 지배하는지를 검증하는 스트레스 케이스다.",
+  "user": {
+    "mbti": "{{INJECTED}}",
+    "tasteVectorConfidence": "low",
+    "savedVideoCount": 2,
+    "tasteVector": {
+      "categories": { "cafe_dessert": 0.5, "restaurant": 0.35 },
+      "features": { "atmosphere": 0.45 },
+      "audiences": ["couple"],
+      "evidence": [
+        { "tag": "서울데이트", "sourceVideoId": "rl_0002", "count": 1 },
+        { "tag": "분위기 좋은", "sourceVideoId": "rl_0001", "count": 1 }
+      ]
+    },
+    "constraints": {
+      "region": "한남",
+      "date": "2026-09-26",
+      "timeRange": "16:00-22:00",
+      "budgetPerPerson": 80000
+    }
+  },
+  "similarUsers": { "cohortSize": 97, "similarity": 0.52 },
+  "candidatePlaces": [
+    {
+      "placeId": "pl_d01",
+      "title": "한남 코스 요리 레스토랑",
+      "category": "restaurant",
+      "subcategory": "파인다이닝",
+      "location": { "name": "한남동", "address": null, "nearestStation": "한강진", "regionTags": ["한남"] },
+      "price": { "amounts": [65000], "perPerson": 65000, "priceLevel": "high", "discount": null },
+      "features": ["분위기 좋은", "프라이빗", "고급스러운", "예약 필수"],
+      "normalizedHashtags": ["한남맛집", "파인다이닝", "기념일"],
+      "constraints": { "parking": "발렛", "reservation": "예약 필수", "waiting": "없음", "accessibility": "엘리베이터" },
+      "openingHours": "18:00-22:00",
+      "cautions": ["노쇼 시 수수료"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.55, "cohortRank": 3 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#한남파인다이닝" }]
+    },
+    {
+      "placeId": "pl_d02",
+      "title": "한남 골목 비스트로",
+      "category": "restaurant",
+      "subcategory": "양식",
+      "location": { "name": "한남동", "address": null, "nearestStation": "한강진", "regionTags": ["한남"] },
+      "price": { "amounts": [32000], "perPerson": 32000, "priceLevel": "mid", "discount": null },
+      "features": ["분위기 좋은", "아늑한", "내돈내산"],
+      "normalizedHashtags": ["한남맛집", "비스트로"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "주말 15분", "accessibility": null },
+      "openingHours": "17:00-23:00",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.68, "cohortRank": 1 },
+      "sourceEvidence": [{ "source": "transcript", "text": "가격대에 비해 구성이 좋아요" }]
+    },
+    {
+      "placeId": "pl_d03",
+      "title": "한남 디저트 카페",
+      "category": "cafe_dessert",
+      "subcategory": "디저트",
+      "location": { "name": "한남동", "address": null, "nearestStation": "한강진", "regionTags": ["한남"] },
+      "price": { "amounts": [16000], "perPerson": 16000, "priceLevel": "mid", "discount": null },
+      "features": ["감성", "통창", "조용한", "분위기 좋은"],
+      "normalizedHashtags": ["한남카페", "감성카페", "디저트맛집"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "주말 20분", "accessibility": null },
+      "openingHours": "11:00-21:00",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.64, "cohortRank": 2 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#한남감성카페" }]
+    },
+    {
+      "placeId": "pl_d04",
+      "title": "한남 대형 복합 문화공간",
+      "category": "culture_exhibition",
+      "subcategory": "전시",
+      "location": { "name": "한남동", "address": null, "nearestStation": "한강진", "regionTags": ["한남"] },
+      "price": { "amounts": [18000], "perPerson": 18000, "priceLevel": "mid", "discount": null },
+      "features": ["전시", "이색", "핫플", "포토존"],
+      "normalizedHashtags": ["한남전시", "요즘핫한곳"],
+      "constraints": { "parking": "주차 가능", "reservation": "예약", "waiting": "주말 15분", "accessibility": "엘리베이터" },
+      "openingHours": "10:00-19:00",
+      "cautions": ["19시 종료"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.49, "cohortRank": 5 },
+      "sourceEvidence": [{ "source": "caption", "text": "전시 보고 카페까지 한 건물에서" }]
+    },
+    {
+      "placeId": "pl_d05",
+      "title": "남산 전망 산책로",
+      "category": "travel_attraction",
+      "subcategory": "산책",
+      "location": { "name": "남산 북측순환로", "address": null, "nearestStation": "한강진", "regionTags": ["한남", "남산"] },
+      "price": { "amounts": [], "perPerson": 0, "priceLevel": "free", "discount": null },
+      "features": ["야경", "노을", "산책", "힐링", "도보"],
+      "normalizedHashtags": ["남산야경", "산책코스"],
+      "constraints": { "parking": "불가", "reservation": "불필요", "waiting": "없음", "accessibility": null },
+      "openingHours": "24시간",
+      "cautions": ["오르막 구간 있음"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.6, "cohortRank": 4 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#남산야경" }]
+    },
+    {
+      "placeId": "pl_d06",
+      "title": "한남 루프탑 바",
+      "category": "restaurant",
+      "subcategory": "술집",
+      "location": { "name": "한남동", "address": null, "nearestStation": "한강진", "regionTags": ["한남"] },
+      "price": { "amounts": [30000], "perPerson": 30000, "priceLevel": "mid", "discount": null },
+      "features": ["루프탑", "야경", "분위기 좋은", "핫플"],
+      "normalizedHashtags": ["한남루프탑", "야경맛집"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "주말 30분", "accessibility": "엘리베이터" },
+      "openingHours": "18:00-02:00",
+      "cautions": ["노키즈존"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.57, "cohortRank": 3 },
+      "sourceEvidence": [{ "source": "transcript", "text": "야경이 트여 있어요" }]
+    }
+  ],
+  "expectations": {
+    "fallback": {
+      "weightsMustBe": { "userTasteVector": 0.3, "similarUserSignal": 0.45, "mbtiAxes": 0.25 },
+      "courseSummaryMustMention": "영상을 더 추가하면 추천이 정확해진다는 안내",
+      "tasteVectorConfidenceInResponse": "low"
+    },
+    "globalInvariants": {
+      "note": "취향 근거가 2개뿐이므로 모든 정류장이 '서울데이트' 또는 '분위기 좋은' 중 하나에 연결되어야 한다. 연결할 수 없는 장소를 넣으면 L0-3 위반이다.",
+      "allowedTasteEvidenceTags": ["서울데이트", "분위기 좋은"],
+      "budgetPerPersonMax": 80000,
+      "cautionsMustPropagate": { "pl_d06": ["노키즈존"], "pl_d01": ["노쇼 시 수수료"] }
+    }
+  }
+}

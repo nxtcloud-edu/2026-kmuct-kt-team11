@@ -1,0 +1,239 @@
+{
+  "fixtureId": "taste-a-cafe-mood",
+  "note": "합성 데이터입니다. 실제 상호·가격이 아니며 프롬프트 회귀 테스트 용도로만 사용합니다.",
+  "description": "카페·감성 중심 취향. 저장한 영상 대부분이 감성카페와 전시. 16유형 전체와 조합해 48케이스 중 A군을 구성한다.",
+  "user": {
+    "mbti": "{{INJECTED}}",
+    "tasteVectorConfidence": "high",
+    "tasteVector": {
+      "categories": {
+        "cafe_dessert": 0.85,
+        "culture_exhibition": 0.62,
+        "restaurant": 0.44,
+        "travel_attraction": 0.38,
+        "activity_experience": 0.21
+      },
+      "features": {
+        "atmosphere": 0.9,
+        "view_photo": 0.74,
+        "operation": 0.3,
+        "value": 0.28,
+        "access": 0.55
+      },
+      "audiences": ["couple", "photo_mood_seeker"],
+      "evidence": [
+        { "tag": "감성카페", "sourceVideoId": "rl_9f21", "count": 4 },
+        { "tag": "통창", "sourceVideoId": "rl_31a0", "count": 3 },
+        { "tag": "성수카페", "sourceVideoId": "tk_7c55", "count": 3 },
+        { "tag": "전시회", "sourceVideoId": "rl_4b12", "count": 2 },
+        { "tag": "노을맛집", "sourceVideoId": "rl_9f21", "count": 2 },
+        { "tag": "조용한", "sourceVideoId": "tk_2e88", "count": 2 }
+      ]
+    },
+    "constraints": {
+      "region": "성수",
+      "date": "2026-09-26",
+      "timeRange": "15:00-22:00",
+      "budgetPerPerson": 60000
+    }
+  },
+  "similarUsers": { "cohortSize": 412, "similarity": 0.78 },
+  "candidatePlaces": [
+    {
+      "placeId": "pl_a01",
+      "title": "성수 골목 한식 다이닝",
+      "category": "restaurant",
+      "subcategory": "한식",
+      "location": { "name": "성수 서울숲길", "address": null, "nearestStation": "뚝섬", "regionTags": ["성수", "서울숲"] },
+      "price": { "amounts": [35000], "perPerson": 35000, "priceLevel": "mid", "discount": null },
+      "features": ["조용한", "프라이빗", "아늑한"],
+      "normalizedHashtags": ["성수맛집", "데이트", "프라이빗"],
+      "constraints": { "parking": "불가", "reservation": "예약 필수", "waiting": "없음", "accessibility": null },
+      "openingHours": "17:00-22:00",
+      "cautions": ["예약 없이 방문 불가"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.58, "cohortRank": 5 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#성수프라이빗다이닝" }]
+    },
+    {
+      "placeId": "pl_a02",
+      "title": "성수 웨이팅 화덕피자",
+      "category": "restaurant",
+      "subcategory": "양식",
+      "location": { "name": "연무장길", "address": null, "nearestStation": "성수", "regionTags": ["성수"] },
+      "price": { "amounts": [22000], "perPerson": 22000, "priceLevel": "low", "discount": null },
+      "features": ["핫플", "내돈내산", "시끌벅적"],
+      "normalizedHashtags": ["성수맛집", "웨이팅맛집", "핫플"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "주말 40분", "accessibility": null },
+      "openingHours": "11:30-21:00",
+      "cautions": ["주말 웨이팅 40분", "주차 불가"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.71, "cohortRank": 2 },
+      "sourceEvidence": [{ "source": "transcript", "text": "웨이팅 40분 했는데 그만한 가치 있었어요" }]
+    },
+    {
+      "placeId": "pl_a03",
+      "title": "통창 로스터리 카페",
+      "category": "cafe_dessert",
+      "subcategory": "로스터리",
+      "location": { "name": "서울숲 인근", "address": null, "nearestStation": "서울숲", "regionTags": ["성수", "서울숲"] },
+      "price": { "amounts": [8000, 18000], "perPerson": 18000, "priceLevel": "mid", "discount": null },
+      "features": ["통창", "조용한", "감성", "아늑한"],
+      "normalizedHashtags": ["성수카페", "감성카페", "통창카페"],
+      "constraints": { "parking": "불가", "reservation": "불가", "waiting": "주말 20분", "accessibility": null },
+      "openingHours": "11:00-21:00",
+      "cautions": ["주말 20분 웨이팅"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.62, "cohortRank": 3 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#성수감성카페" }]
+    },
+    {
+      "placeId": "pl_a04",
+      "title": "성수 루프탑 대형카페",
+      "category": "cafe_dessert",
+      "subcategory": "대형카페",
+      "location": { "name": "성수동 2가", "address": null, "nearestStation": "성수", "regionTags": ["성수"] },
+      "price": { "amounts": [15000], "perPerson": 15000, "priceLevel": "mid", "discount": null },
+      "features": ["대형카페", "루프탑", "핫플", "야경"],
+      "normalizedHashtags": ["성수카페", "루프탑카페", "요즘핫한곳"],
+      "constraints": { "parking": "주차 가능", "reservation": "불가", "waiting": "주말 15분", "accessibility": "엘리베이터" },
+      "openingHours": "11:00-23:00",
+      "cautions": [],
+      "sponsored": true,
+      "similarUserSignal": { "likeRate": 0.68, "cohortRank": 4 },
+      "sourceEvidence": [{ "source": "caption", "text": "협찬 받아 다녀왔습니다" }]
+    },
+    {
+      "placeId": "pl_a05",
+      "title": "성수 미디어아트 기획전",
+      "category": "culture_exhibition",
+      "subcategory": "전시",
+      "location": { "name": "성수 복합문화공간", "address": null, "nearestStation": "성수", "regionTags": ["성수"] },
+      "price": { "amounts": [12000], "perPerson": 12000, "priceLevel": "low", "discount": null },
+      "features": ["전시", "이색", "컨셉", "포토존"],
+      "normalizedHashtags": ["전시회", "이색데이트", "성수전시"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "없음", "accessibility": "엘리베이터" },
+      "openingHours": "10:00-19:00",
+      "cautions": ["19시 종료로 저녁 코스에 배치 불가"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.55, "cohortRank": 7 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#성수전시" }]
+    },
+    {
+      "placeId": "pl_a06",
+      "title": "향수 만들기 원데이클래스",
+      "category": "activity_experience",
+      "subcategory": "공방",
+      "location": { "name": "성수 공방거리", "address": null, "nearestStation": "성수", "regionTags": ["성수"] },
+      "price": { "amounts": [45000], "perPerson": 45000, "priceLevel": "high", "discount": null },
+      "features": ["원데이클래스", "이색", "프라이빗", "조용한"],
+      "normalizedHashtags": ["원데이클래스", "이색데이트", "공방"],
+      "constraints": { "parking": "불가", "reservation": "예약 필수", "waiting": "없음", "accessibility": null },
+      "openingHours": "13:00-20:00",
+      "cautions": ["2일 전 예약 마감"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.49, "cohortRank": 9 },
+      "sourceEvidence": [{ "source": "transcript", "text": "둘이서 향 조합 고르는 게 재밌었어요" }]
+    },
+    {
+      "placeId": "pl_a07",
+      "title": "서울숲 노을 산책로",
+      "category": "travel_attraction",
+      "subcategory": "산책",
+      "location": { "name": "서울숲", "address": null, "nearestStation": "서울숲", "regionTags": ["성수", "서울숲"] },
+      "price": { "amounts": [], "perPerson": 0, "priceLevel": "free", "discount": null },
+      "features": ["노을", "산책", "포토존", "힐링"],
+      "normalizedHashtags": ["노을맛집", "서울숲", "산책코스"],
+      "constraints": { "parking": "주차 가능", "reservation": "불필요", "waiting": "없음", "accessibility": "휠체어 가능" },
+      "openingHours": "24시간",
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.64, "cohortRank": 6 },
+      "sourceEvidence": [{ "source": "hashtag", "text": "#노을맛집" }]
+    },
+    {
+      "placeId": "pl_a08",
+      "title": "성수 루프탑 와인바",
+      "category": "restaurant",
+      "subcategory": "술집",
+      "location": { "name": "성수동 1가", "address": null, "nearestStation": "성수", "regionTags": ["성수"] },
+      "price": { "amounts": [28000], "perPerson": 28000, "priceLevel": "mid", "discount": null },
+      "features": ["루프탑", "야경", "분위기 좋은", "프라이빗"],
+      "normalizedHashtags": ["성수와인바", "야경맛집", "기념일데이트"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "없음", "accessibility": "엘리베이터" },
+      "openingHours": "18:00-01:00",
+      "cautions": ["노키즈존"],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.66, "cohortRank": 5 },
+      "sourceEvidence": [{ "source": "caption", "text": "야경 보면서 와인 한 잔" }]
+    },
+    {
+      "placeId": "pl_a09",
+      "title": "성수 골목 소품샵",
+      "category": "shopping_product",
+      "subcategory": "소품샵",
+      "location": { "name": "성수 골목", "address": null, "nearestStation": "성수", "regionTags": ["성수"] },
+      "price": { "amounts": [], "perPerson": null, "priceLevel": null, "discount": null },
+      "features": ["숨은명소", "감성", "조용한"],
+      "normalizedHashtags": ["소품샵", "숨은명소"],
+      "constraints": { "parking": "불가", "reservation": "불필요", "waiting": "없음", "accessibility": null },
+      "openingHours": null,
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.41, "cohortRank": 12 },
+      "sourceEvidence": [{ "source": "transcript", "text": "골목 안쪽에 작은 소품샵이 있어요" }]
+    },
+    {
+      "placeId": "pl_a10",
+      "title": "숨은 디저트 바",
+      "category": "cafe_dessert",
+      "subcategory": "디저트",
+      "location": { "name": "성수 뒷골목", "address": null, "nearestStation": "뚝섬", "regionTags": ["성수"] },
+      "price": { "amounts": [], "perPerson": null, "priceLevel": null, "discount": null },
+      "features": ["숨은맛집", "조용한", "아늑한", "프라이빗"],
+      "normalizedHashtags": ["숨은맛집", "디저트맛집"],
+      "constraints": { "parking": "불가", "reservation": "예약", "waiting": "없음", "accessibility": null },
+      "openingHours": null,
+      "cautions": [],
+      "sponsored": false,
+      "similarUserSignal": { "likeRate": 0.44, "cohortRank": 11 },
+      "sourceEvidence": [{ "source": "transcript", "text": "간판이 없어서 찾기 어려워요" }]
+    }
+  ],
+  "expectations": {
+    "note": "회귀 테스트에서 자동 검증할 유형별 기대치. 장소를 특정하지 않고 성향 방향만 검증한다.",
+    "byAxis": {
+      "crowdTolerance.negative": {
+        "shouldAvoidPlaceIds": ["pl_a02", "pl_a04"],
+        "maxStops": 3,
+        "reason": "웨이팅과 대형·핫플 신호가 강한 후보"
+      },
+      "crowdTolerance.positive": {
+        "shouldPreferPlaceIds": ["pl_a04", "pl_a02"],
+        "reason": "루프탑 대형카페와 핫플 웨이팅 맛집"
+      },
+      "experienceMode.positive": {
+        "shouldIncludeAtLeastOneOf": ["pl_a05", "pl_a06"],
+        "reason": "전시·원데이클래스가 이색 슬롯을 채운다"
+      },
+      "experienceMode.negative": {
+        "shouldIncludeAtLeastOneOf": ["pl_a02", "pl_a03"],
+        "reason": "내돈내산 검증 신호와 실체가 분명한 미식"
+      },
+      "scheduleRigidity.positive": {
+        "requireStartTimeOnAllStops": true,
+        "requireReservationActionWhenReservationRequired": true
+      },
+      "scheduleRigidity.negative": {
+        "requireAlternativesCount": 2,
+        "requireStartTimeNull": true
+      }
+    },
+    "globalInvariants": {
+      "sponsoredNoticeRequiredFor": ["pl_a04"],
+      "cautionsMustPropagate": { "pl_a08": ["노키즈존"], "pl_a02": ["주말 웨이팅 40분", "주차 불가"] },
+      "verificationRequiredMustIncludeWhenUsed": ["pl_a09", "pl_a10"],
+      "budgetPerPersonMax": 60000
+    }
+  }
+}
