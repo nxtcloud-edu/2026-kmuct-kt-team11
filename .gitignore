@@ -25,7 +25,10 @@ media/
 .idea/
 *.swp
 
-# Tracked on purpose: .agents/ (shared cross-role decisions), docs/
+# Local-only — shared cross-role decisions, kept on disk but never pushed
+.agents/
+
+# Tracked on purpose: docs/
 
 # ── Next.js / Node (from create-next-app) ──────────────────────────────
 !.yarn/patches
