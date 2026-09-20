@@ -58,6 +58,22 @@ wherever the server is writing.
 To browse real data, `bash scripts/seed-prototype.sh` signs in a fixture user and
 creates 13 saved places across three Seoul areas.
 
+### Demo accounts
+
+`bash scripts/seed-accounts.sh` creates the two states worth demoing — a brand-new
+account that still has onboarding ahead of it, and an established one whose home
+screen is already full. Both use the password `gaja-demo-1234`:
+
+| Account | Lands on |
+|---|---|
+| `demo-new@example.com` | `/onboarding`, step 1 of 5 |
+| `demo-home@example.com` | `/home` — 민지, 활동 지역 성수, 8 saved places and a 성수 근처 map |
+
+The addresses are fixed, so the script deletes those two users before recreating
+them; re-running it gives a fresh un-onboarded account rather than a 409. It
+refuses to run unless `DATABASE_URL` and `BASE` both point at localhost — these
+accounts have a published password, and that is only safe locally.
+
 ## Deploying
 
 Vercel, on the Hobby plan. The repo lives in a GitHub org, which Hobby can still build
