@@ -26,6 +26,8 @@ export type ProblemCode =
   | 'login-rate-limited'
   | 'oauth-failed'
   | 'oauth-email-required'
+  | 'tts-unavailable'
+  | 'tts-failed'
   | 'internal-error';
 
 const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: string }> = {
@@ -47,6 +49,8 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'login-rate-limited':       { status: 429, title: 'Too many attempts',          detail: '로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.' },
   'oauth-failed':             { status: 400, title: 'Sign-in did not complete',   detail: 'That sign-in did not complete. Try again.' },
   'oauth-email-required':     { status: 409, title: 'Email permission required',  detail: 'Gaja needs your email address so you can always get back in. Allow email access and try again.' },
+  'tts-unavailable':          { status: 503, title: 'Voice not available',        detail: '음성 합성이 아직 설정되지 않았어요. 서버에 ElevenLabs 키가 필요합니다.' },
+  'tts-failed':               { status: 502, title: 'Voice synthesis failed',     detail: '음성으로 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.' },
   'internal-error':           { status: 500, title: 'Something went wrong',        detail: 'Something went wrong on our end. Try again.' },
 };
 
