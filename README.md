@@ -1,5 +1,7 @@
 # Gaja
 
+2026년 국민대학교 캠퍼스타운 키로톤 11팀 **아노야 부탁해** 레포지토리입니다.
+
 Instagram reels → a planned day in Seoul. Save places from reels, and the planner
 builds a time-ordered itinerary that is actually open when you get there.
 
