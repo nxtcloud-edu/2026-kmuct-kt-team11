@@ -56,7 +56,8 @@ export const POST = withRoute(async (req: Request) => {
       const updated = await c.query<SessionUser>(
         `update users set email = $1, email_verified_at = now(), last_active_at = now()
           where id = $2
-      returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
+      returning id, display_name, avatar_url, email, email_verified_at, igsid,
+                instagram_handle, locale,
                 home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
                 onboarded_at`,
         [link.email, signedIn.id],
@@ -79,7 +80,8 @@ export const POST = withRoute(async (req: Request) => {
 
       const found = await c.query<SessionUser>(
         `update users set last_active_at = now() where id = $1
-      returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
+      returning id, display_name, avatar_url, email, email_verified_at, igsid,
+                instagram_handle, locale,
                 home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
                 onboarded_at`,
         [link.user_id],
@@ -92,7 +94,8 @@ export const POST = withRoute(async (req: Request) => {
     const created = await c.query<SessionUser>(
       `insert into users (display_name, email, email_verified_at)
        values ($1, $2, now())
-   returning id, display_name, avatar_url, email, email_verified_at, igsid, locale,
+   returning id, display_name, avatar_url, email, email_verified_at, igsid,
+                instagram_handle, locale,
              home_area, profile_visible_in_groups, plan, gender, age_band, mbti,
              onboarded_at`,
       [link.email.split('@')[0], link.email],

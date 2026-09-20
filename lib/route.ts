@@ -31,6 +31,10 @@ export function withRoute<Args extends unknown[]>(
       if (pg?.code === '23505') {
         if (pg.constraint === 'saved_places_no_duplicate_idx') return problem('duplicate-saved-place');
         if (pg.constraint === 'users_email_key') return problem('email-already-linked');
+        // A duplicate Instagram handle is a refused claim, not a failure: the index
+        // exists so two accounts can never both be candidates for one sender.
+        if (pg.constraint === 'users_instagram_handle_lower_idx')
+          return problem('instagram-handle-taken');
         if (pg.constraint === 'group_members_one_owner_idx') return problem('last-owner');
       }
       if (pg?.code === '23514' && pg.constraint === 'users_recovery_channel_required') {

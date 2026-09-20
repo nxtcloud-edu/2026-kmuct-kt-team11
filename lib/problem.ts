@@ -16,6 +16,7 @@ export type ProblemCode =
   | 'magic-link-rate-limited'
   | 'recovery-channel-required'
   | 'email-already-linked'
+  | 'instagram-handle-taken'
   | 'idempotency-key-reuse'
   | 'invite-invalid'
   | 'invite-already-member'
@@ -37,6 +38,9 @@ const CATALOGUE: Record<ProblemCode, { status: number; title: string; detail: st
   'magic-link-rate-limited':  { status: 429, title: 'Too many requests',           detail: 'Too many link requests. Try again in a few minutes.' },
   'recovery-channel-required':{ status: 409, title: 'Recovery channel required',   detail: 'Removing this email would leave the account with no way to sign back in. Link Instagram first, or set a different email.' },
   'email-already-linked':     { status: 409, title: 'Email already linked',        detail: 'That address is already linked to another Gaja account.' },
+  // A typed handle is only a hint, so losing the race costs the second claimant
+  // nothing that was theirs — say so plainly rather than implying an accusation.
+  'instagram-handle-taken':   { status: 409, title: 'Instagram handle already claimed', detail: '다른 계정에서 이미 연결해 둔 인스타그램 아이디예요. 오타가 없는지 확인해 주시고, 본인 아이디가 맞다면 비워둔 채로 넘어가셔도 괜찮아요.' },
   'idempotency-key-reuse':    { status: 409, title: 'Idempotency key reused',      detail: 'This Idempotency-Key was already used with a different request body. Generate a new key.' },
   'invite-invalid':           { status: 400, title: 'Invite no longer valid',      detail: 'This invite has expired or was already used. Ask for a new one.' },
   'invite-already-member':    { status: 409, title: 'Already a member',            detail: 'You are already in this group.' },
