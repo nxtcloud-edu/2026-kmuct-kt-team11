@@ -271,9 +271,11 @@ export async function extractPlacesFromCaption(caption: string): Promise<Caption
     throw new Error('Gemini returned a response that was not JSON despite responseMimeType=application/json.');
   }
 
-  const places = (Array.isArray(parsed.places) ? parsed.places : [])
-    .map((p, i) => normalise((p ?? {}) as RawPlace, i))
-    .filter((p): p is PlaceCandidate => p !== null);
+  const places = dedupeOrdinals(
+    (Array.isArray(parsed.places) ? parsed.places : [])
+      .map((p, i) => normalise((p ?? {}) as RawPlace, i))
+      .filter((p): p is PlaceCandidate => p !== null),
+  );
 
   return {
     places,
@@ -285,4 +287,42 @@ export async function extractPlacesFromCaption(caption: string): Promise<Caption
     model: MODEL,
     ms: Date.now() - startedAt,
   };
+}
+
+/**
+ * Make the ordinals unique within one reel, renumbering positionally when they
+ * are not.
+ *
+ * CREATORS MISCOUNT, and the model faithfully copies them: reel DTafJINEnWW
+ * marks its eighth 다방 `❼` for the second time rather than `❽`, so two venues
+ * came back as ordinal 7. `saved_places_reel_ordinal_idx` is unique on
+ * (reel_id, ordinal), so the second insert raised 23505 and took the whole clip
+ * down with it — eight venues lost to one mistyped character.
+ *
+ * Renumbering is positional and all-or-nothing: either the creator's numbering
+ * is usable as-is and is kept exactly, or it is internally inconsistent and the
+ * array's own order — which is the order the venues appear in the caption —
+ * replaces it wholesale. A partial repair, bumping only the collision, would
+ * silently reorder the rest relative to the text.
+ *
+ * The ordinal exists to match a candidate back to the entry a human is reading
+ * and to key the saved row. A duplicate serves neither purpose, so there is
+ * nothing to preserve by keeping it.
+ */
+function dedupeOrdinals(places: PlaceCandidate[]): PlaceCandidate[] {
+  const seen = new Set<number>();
+  let collides = false;
+  for (const p of places) {
+    if (seen.has(p.ordinal)) {
+      collides = true;
+      break;
+    }
+    seen.add(p.ordinal);
+  }
+  if (!collides) return places;
+
+  console.warn(
+    `[extract] caption numbering repeats an ordinal across ${places.length} venues; renumbering by position.`,
+  );
+  return places.map((p, i) => ({ ...p, ordinal: i + 1 }));
 }
