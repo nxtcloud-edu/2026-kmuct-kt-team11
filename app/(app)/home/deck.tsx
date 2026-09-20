@@ -108,6 +108,11 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
   const current = sorted[index];
   const behind = sorted.slice(index + 1, index + 3);
 
+  // How far this gesture has carried the stack forward, 0..1. Derived, never
+  // stored: it is a pure function of `drag`, and a second copy in state would
+  // be one render behind the card it is supposed to move with.
+  const lift = Math.min(Math.abs(drag) / COMMIT_PX, 1);
+
   function onPointerDown(e: React.PointerEvent) {
     dragStart.current = e.clientX;
     setDragging(true);
@@ -167,92 +172,74 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
       </div>
 
       <div className="relative mt-[var(--space-17)]">
-        {/* The cards behind are the swipe affordance. Nothing else on screen
-            says "there is more underneath this", so they are not decoration. */}
-        {behind.map((p, i) => (
-          <div
-            key={p.id}
-            aria-hidden
-            // inset-0, not a fixed height: the container is sized by the real
-            // card, so the ghosts match it instead of poking out below.
-            // surface-2 rather than surface-1 — #FAFAFA at reduced opacity is
-            // invisible against a white canvas.
-            className="absolute inset-0 rounded-[var(--radius-4xl)] bg-surface-2 motion-safe:transition-transform motion-safe:duration-300"
-            style={{
-              // scaleX, not scale: a uniform scale shrinks the ghost vertically
-              // too, so on a tall card it hides inside the front card's bounds
-              // instead of peeking above it. Narrowing horizontally keeps the
-              // vertical offset exactly the translate.
-              transform: `translateY(${-(i + 1) * 9}px) scaleX(${1 - (i + 1) * 0.05})`,
-              opacity: 1 - i * 0.4,
-            }}
-          />
-        ))}
+        {/* The cards behind carry the NEXT places, not empty slabs. An empty
+            ghost is fine at rest — it only has to say "there is more under
+            this" — but the moment the front card slides away it is the thing
+            you are looking at, and a blank grey rectangle mid-swipe reads as
+            the card having failed to load rather than as a deck.
+
+            They also advance WITH the drag rather than waiting for it to
+            commit: `lift` is how far the gesture has travelled toward the
+            threshold, so the stack rises and grows under your finger and the
+            motion is continuous instead of a jump at 72px. */}
+        {behind.map((p, i) => {
+          const step = i + 1 - lift;
+          return (
+            <div
+              key={p.id}
+              aria-hidden
+              // inset-0, not a fixed height: the container is sized by the real
+              // card, so the ghosts match it instead of poking out below.
+              className="pointer-events-none absolute inset-0 overflow-hidden rounded-[var(--radius-4xl)]
+                         bg-surface-1 motion-safe:transition-transform motion-safe:duration-300
+                         motion-safe:[transition-timing-function:var(--ease-nav)]"
+              style={{
+                // Uniform scale from the TOP edge, not scaleX. Scaling only the
+                // width squashes the photo and the Hangul inside it; anchoring
+                // the origin to the top means the card shrinks downward, and the
+                // negative translate is what lifts it into view above the front
+                // card. The two together are the peek.
+                transformOrigin: 'top center',
+                transform: `translateY(${-step * 10}px) scale(${1 - step * 0.045})`,
+                opacity: Math.max(0, 1 - step * 0.35),
+                zIndex: -1 - i,
+              }}
+            >
+              <CardFace saved={p} />
+            </div>
+          );
+        })}
 
         <article
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
-          className="relative touch-pan-y select-none rounded-[var(--radius-4xl)] bg-surface-1 p-[var(--space-13)]"
+          className="relative touch-pan-y select-none rounded-[var(--radius-4xl)] bg-surface-1"
           style={{
+            // `will-change` so the compositor promotes the card once rather than
+            // on the first pointermove, which is where the stutter at the start
+            // of a swipe came from.
+            willChange: 'transform',
+            // Rotation scaled to the canvas rather than a fixed /60: the same
+            // 72px commit on a 430px card should tilt the same amount it does on
+            // a wider one, and a constant divisor makes the gesture feel heavier
+            // the narrower the screen gets.
             transform: `translateX(${drag}px) rotate(${drag / 60}deg)`,
-            transition: dragging ? 'none' : 'transform var(--dur-fade) var(--ease-nav)',
+            // No transition WHILE dragging — the card has to track the finger
+            // exactly — and an eased one on release so it settles rather than
+            // snaps. `--dur-push` (350ms) rather than `--dur-fade` (250ms):
+            // this is a card travelling across the screen, which is the same
+            // kind of movement a push transition is, and at 250ms it arrives
+            // before the eye has followed it.
+            //
+            // Both tokens drop to 0ms inside the reduced-motion block in
+            // globals.css, so honouring that preference costs nothing here —
+            // the card simply arrives.
+            transition: dragging ? 'none' : 'transform var(--dur-push) var(--ease-nav)',
           }}
         >
-          {current.place?.category ? (
-            <span
-              className="inline-flex items-center gap-[var(--space-4)] rounded-[var(--radius-sm)] bg-[var(--tag-mint-bg)] px-[var(--space-7)] py-[var(--space-4)] text-ink"
-              style={{ font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)' }}
-            >
-              <Icon name={current.place.category as IconName} size={14} />
-              {CATEGORY_KO[current.place.category] ?? current.place.category}
-            </span>
-          ) : null}
-
-          <h3
-            className="mt-[var(--space-9)]"
-            style={{ font: 'var(--type-post-title)', letterSpacing: 'var(--post-title-ls)' }}
-          >
-            {current.place?.name ?? '장소를 확인하는 중이에요'}
-          </h3>
-
-          {current.place?.address || current.place?.area ? (
-            <p className="mt-[var(--space-3)] text-secondary" style={{ font: 'var(--type-meta)' }}>
-              {current.place.address ?? current.place.area}
-            </p>
-          ) : null}
-
-          {/* The reel's real cover frame when we captured one, the stock still
-              otherwise — see lib/reel-thumb.ts, now a fallback rather than the
-              only path. Seeded rows, hand-entered places and reels whose
-              download failed all have a null `thumb_url`, and a hole where a
-              picture should be is worse than a picture that is not this reel's.
-              Portrait, because a reel is portrait and a landscape crop would
-              misrepresent the frame the creator chose. `draggable=false` so
-              dragging the card does not start a native image drag instead of a
-              swipe. */}
-          <div className="mt-[var(--space-11)] relative aspect-[4/5] w-[62%] overflow-hidden rounded-[var(--radius-lg)] bg-surface-2">
-            <Image
-              src={current.thumb_url ?? reelThumb(current.id)}
-              alt=""
-              fill
-              draggable={false}
-              sizes="260px"
-              className="object-cover"
-            />
-            {current.hook ? (
-              // The caption sits on a solid plate, never straight on the photo:
-              // Korean place names over a busy frame are unreadable, and a
-              // gradient scrim only half-fixes it.
-              <p
-                className="absolute inset-x-[var(--space-5)] bottom-[var(--space-5)] rounded-[var(--radius-sm)] bg-[var(--puck-white)] px-[var(--space-7)] py-[var(--space-5)] text-ink"
-                style={{ font: 'var(--type-card-title)' }}
-              >
-                {current.hook}
-              </p>
-            ) : null}
-          </div>
+          <CardFace saved={current} />
         </article>
       </div>
 
@@ -286,6 +273,81 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
  * The chevron is a text node, so it inherits size and colour for free — but it
  * is meaningless to a screen reader, hence the aria-label carrying the real one.
  */
+/**
+ * One card's face, used by the front card AND by the ghosts behind it.
+ *
+ * Shared deliberately. When these were two things the ghosts were empty grey
+ * slabs, which is fine at rest but wrong the moment a swipe is in progress —
+ * the thing sliding into view was a blank rectangle, and a blank rectangle
+ * where a photo should be reads as a failure to load rather than as the next
+ * card. Sharing the face also means the two can never drift: whatever the front
+ * card shows, the deck shows one step early.
+ *
+ * Padding lives here rather than on the <article>, so the ghost's rounded
+ * corners clip this the same way the front card's do.
+ */
+function CardFace({ saved }: { saved: SavedPlace }) {
+  return (
+    <div className="p-[var(--space-13)]">
+      {saved.place?.category ? (
+        <span
+          className="inline-flex items-center gap-[var(--space-4)] rounded-[var(--radius-sm)] bg-[var(--tag-mint-bg)] px-[var(--space-7)] py-[var(--space-4)] text-ink"
+          style={{ font: 'var(--type-tag)', letterSpacing: 'var(--tag-ls)' }}
+        >
+          <Icon name={saved.place.category as IconName} size={14} />
+          {CATEGORY_KO[saved.place.category] ?? saved.place.category}
+        </span>
+      ) : null}
+
+      <h3
+        className="mt-[var(--space-9)]"
+        style={{ font: 'var(--type-post-title)', letterSpacing: 'var(--post-title-ls)' }}
+      >
+        {saved.place?.name ?? '장소를 확인하는 중이에요'}
+      </h3>
+
+      {saved.place?.address || saved.place?.area ? (
+        <p
+          className="mt-[var(--space-3)] truncate text-secondary"
+          style={{ font: 'var(--type-meta)' }}
+        >
+          {saved.place.address ?? saved.place.area}
+        </p>
+      ) : null}
+
+      {/* The reel's real cover frame when we captured one, the stock still
+          otherwise — see lib/reel-thumb.ts, now a fallback rather than the only
+          path. Seeded rows, hand-entered places and reels whose download failed
+          all have a null `thumb_url`, and a hole where a picture should be is
+          worse than a picture that is not this reel's. Portrait, because a reel
+          is portrait and a landscape crop would misrepresent the frame the
+          creator chose. `draggable=false` so dragging the card does not start a
+          native image drag instead of a swipe. */}
+      <div className="mt-[var(--space-11)] relative aspect-[4/5] w-[62%] overflow-hidden rounded-[var(--radius-lg)] bg-surface-2">
+        <Image
+          src={saved.thumb_url ?? reelThumb(saved.id)}
+          alt=""
+          fill
+          draggable={false}
+          sizes="260px"
+          className="object-cover"
+        />
+        {saved.hook ? (
+          // The caption sits on a solid plate, never straight on the photo:
+          // Korean place names over a busy frame are unreadable, and a gradient
+          // scrim only half-fixes it.
+          <p
+            className="absolute inset-x-[var(--space-5)] bottom-[var(--space-5)] rounded-[var(--radius-sm)] bg-[var(--puck-white)] px-[var(--space-7)] py-[var(--space-5)] text-ink"
+            style={{ font: 'var(--type-card-title)' }}
+          >
+            {saved.hook}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function DeckButton({
   label,
   disabled,
