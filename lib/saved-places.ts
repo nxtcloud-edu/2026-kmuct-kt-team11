@@ -1,5 +1,6 @@
 import { query, queryOne } from './db';
 import { ProblemError } from './problem';
+import { reelThumbPublicUrl } from './storage';
 import type { PlaceCategory, SavedPlace, SavedPlaceStatus } from './api/types';
 
 export type SavedPlaceRow = {
@@ -13,6 +14,10 @@ export type SavedPlaceRow = {
   // table in 20260920000005 so one reel can produce many saved places. Null for
   // hand-entered rows (no reel) and for reels shared without a URL.
   source_url: string | null;
+  // Also joined from `reels`. The cover frame belongs to the reel, not to the
+  // venue — one reel is ten saved places, and hanging the image off the child
+  // would store the same picture ten times (20260920000009).
+  thumb_path: string | null;
   saved_at: Date;
   place_id: string | null;
   place_name: string | null;
@@ -32,7 +37,7 @@ export type SavedPlaceRow = {
  */
 export const SAVED_PLACE_SELECT = `
   select sp.id, sp.user_id, sp.group_id, sp.status, sp.confirmed, sp.hook, sp.saved_at,
-         r.source_url as source_url,
+         r.source_url as source_url, r.thumb_path as thumb_path,
          p.id as place_id, p.name as place_name, p.name_alt as place_name_alt,
          p.category as place_category, p.lat as place_lat, p.lng as place_lng,
          p.address as place_address, p.area as place_area
@@ -76,6 +81,18 @@ export function serialiseSavedPlace(r: SavedPlaceRow): SavedPlace {
     confirmed: r.confirmed,
     hook: r.hook,
     source_url: r.source_url,
+    // A URL, not the stored path: the client has no business knowing the bucket
+    // name or Storage's route shape, and building it here means a move to a
+    // different object store is one function (lib/storage.ts), not a client
+    // release. Null when the reel has no cover yet, when the row is
+    // hand-entered, or when Supabase is not configured at all — the deck falls
+    // back to lib/reel-thumb.ts in every one of those cases.
+    //
+    // `thumb_width`/`thumb_height` stay DATABASE-ONLY, on the same rule as
+    // `reel_id` and `ordinal` (20260920000005): the deck renders into a fixed
+    // aspect box and needs neither, and a field in a published contract is a
+    // promise to keep it.
+    thumb_url: reelThumbPublicUrl(r.thumb_path),
     saved_at: r.saved_at.toISOString(),
   };
 }

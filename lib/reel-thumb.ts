@@ -1,14 +1,24 @@
 /**
- * MOCK. Stand-in reel stills for slice 3.
+ * FALLBACK stand-in reel stills. No longer the only path.
  *
- * `saved_places` has no thumbnail column and `places` has no photo: the real
- * still is captured when the extraction ladder runs, which is slice 3's work.
- * Until then the deck would be a wall of text, so each saved place is given one
- * of 24 sample frames.
+ * The real cover frame now arrives with the reel: the Instagram DM payload
+ * carries `clip.image_versions2.candidates`, the poller picks a portrait one
+ * (lib/ingest/inbox/parse.ts, `pickThumbCandidate`), and the bytes are copied
+ * into Gaja's own storage at ingest time (lib/ingest/thumbnail.ts) because the
+ * CDN URL expires in about four and a half days. `saved_places.thumb_url` is
+ * that image, and app/(app)/home/deck.tsx renders it whenever it is there.
  *
- * This is the one place in the product that shows a picture it did not earn, and
- * it is deliberately quarantined here so it is a single delete later — remove
- * this file, remove `public/reels/`, and read the real still off the row.
+ * THIS FILE SURVIVES FOR THE ROWS THAT HAVE NO SUCH IMAGE, and there are three
+ * kinds. Seeded and demo rows, which never came from a reel at all. Hand-entered
+ * places, same. And reels whose cover genuinely failed to download — the
+ * capture is allowed to fail without costing the reel, so a null thumbnail is a
+ * designed outcome and not a bug. A card with a hole where a picture belongs is
+ * worse than a card with a picture that is not this reel's, so those rows get
+ * one of 24 sample frames from `public/reels/`.
+ *
+ * It is still a single delete, just not yet: when every row that reaches the
+ * deck carries a real thumbnail, remove this file, remove `public/reels/`, and
+ * drop the `??` in deck.tsx.
  *
  * The mapping is a hash of the row id rather than the array index, so a place
  * keeps the same image across sorts, reloads and pagination. An image that

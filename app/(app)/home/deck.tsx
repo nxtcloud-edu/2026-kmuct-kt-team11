@@ -204,13 +204,18 @@ export function PlaceDeck({ places }: { places: SavedPlace[] }) {
             </p>
           ) : null}
 
-          {/* MOCK until slice 3 — see lib/reel-thumb.ts. Portrait, because a reel
-              is portrait and a landscape crop would misrepresent the frame the
-              creator chose. `draggable=false` so dragging the card does not
-              start a native image drag instead of a swipe. */}
+          {/* The reel's real cover frame when we captured one, the stock still
+              otherwise — see lib/reel-thumb.ts, now a fallback rather than the
+              only path. Seeded rows, hand-entered places and reels whose
+              download failed all have a null `thumb_url`, and a hole where a
+              picture should be is worse than a picture that is not this reel's.
+              Portrait, because a reel is portrait and a landscape crop would
+              misrepresent the frame the creator chose. `draggable=false` so
+              dragging the card does not start a native image drag instead of a
+              swipe. */}
           <div className="mt-[var(--space-11)] relative aspect-[4/5] w-[62%] overflow-hidden rounded-[var(--radius-lg)] bg-surface-2">
             <Image
-              src={reelThumb(current.id)}
+              src={current.thumb_url ?? reelThumb(current.id)}
               alt=""
               fill
               draggable={false}

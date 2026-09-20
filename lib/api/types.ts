@@ -50,6 +50,17 @@ export type SavedPlace = {
   confirmed: boolean;
   hook: string | null;
   source_url: string | null;
+  /**
+   * The reel's cover frame, copied into Gaja's own storage at ingest time and
+   * served from there. Never an Instagram CDN link: those carry an `oe=` expiry
+   * measured at ~4.5 days, so a URL passed straight through would 404 inside a
+   * week (supabase/migrations/20260920000009_reel_thumbnails.sql).
+   *
+   * Null for a hand-entered place, for a reel whose cover failed to download, and
+   * for every row that predates the capture. Clients fall back; a null here is
+   * ordinary, not an error.
+   */
+  thumb_url: string | null;
   saved_at: string;
 };
 

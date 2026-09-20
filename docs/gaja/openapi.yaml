@@ -379,8 +379,10 @@ paths:
         existing row with a similar name returns **200** with that row and `matched: true`,
         not a new row (spec §5.1).
 
-        `area` is client-supplied and required in slice 1 — there is no geocoder until
-        slice 2 adds the Kakao adapter. Slice 2 makes it optional and server-resolves it.
+        `area` is client-supplied and required on this route: its callers hand-enter a
+        place and have no address to derive it from. Server-side geocoding does now exist
+        (`lib/research/geocode.ts`) and the reel pipeline resolves `area` from it, but that
+        path does not go through this endpoint, so the request body is unchanged.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -739,6 +741,12 @@ components:
         hook:
           oneOf: [{ type: string }, { type: 'null' }]
         source_url:
+          oneOf: [{ type: string, format: uri }, { type: 'null' }]
+        thumb_url:
+          description: >-
+            The reel's cover frame, served from Gaja's own storage — never an
+            Instagram CDN link, which expires within days. Null for hand-entered
+            places and for reels whose cover was not captured; clients fall back.
           oneOf: [{ type: string, format: uri }, { type: 'null' }]
         saved_at: { type: string, format: date-time }
 
