@@ -58,9 +58,7 @@ export default async function HomePage() {
           className="mt-[var(--space-11)]"
           style={{ font: 'var(--type-screen-title)', letterSpacing: 'var(--screen-title-ls)' }}
         >
-          {user.display_name}님, 저장만 해두고
-          <br />
-          다시 꺼내볼까요?
+          {user.display_name}님 오늘 어디 가볼까요?
         </h1>
       </header>
 
