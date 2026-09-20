@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { Content, PageHeader } from '@/components/surface';
 import { EmptyState } from '@/components/states';
 import { requireSession } from '@/lib/require-session';
@@ -29,21 +30,44 @@ export default async function GroupsPage() {
 
   return (
     <Content>
-      <PageHeader title="그룹" />
+      <div className="flex items-start justify-between gap-4">
+        <PageHeader title="그룹" />
+        <Link
+          href="/groups/new"
+          className="inline-flex h-[var(--tap-min)] items-center justify-center rounded-[var(--radius-lg)] bg-ink px-4 text-on-ink active:opacity-[var(--press-opacity)]"
+          style={{ font: 'var(--type-button)' }}
+        >
+          새 그룹
+        </Link>
+      </div>
       {groups.length === 0 ? (
         <EmptyState
           title="아직 그룹이 없어요"
           body="그룹을 만들면 저장한 곳을 함께 모으고 같이 일정을 짤 수 있어요."
+          action={
+            <Link
+              href="/groups/new"
+              className="inline-flex h-[var(--field-height)] items-center justify-center rounded-[var(--radius-lg)] bg-ink px-5 text-on-ink active:opacity-[var(--press-opacity)]"
+              style={{ font: 'var(--type-button)' }}
+            >
+              그룹 만들기
+            </Link>
+          }
         />
       ) : (
         <ul className="flex list-none flex-col gap-3 p-0">
           {groups.map((g) => (
-            <Card as="li" key={g.id} className="flex items-center gap-3 p-4">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium [overflow-wrap:anywhere]">{g.name}</p>
-                <p className="mt-0.5 text-secondary">멤버 {g.member_count}명</p>
-              </div>
-              {g.role === 'owner' ? <Chip>관리자</Chip> : null}
+            <Card as="li" key={g.id}>
+              <Link
+                href={`/groups/${g.id}`}
+                className="flex min-h-[var(--field-height)] items-center gap-3 p-4 active:opacity-[var(--press-opacity)]"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium [overflow-wrap:anywhere]">{g.name}</p>
+                  <p className="mt-0.5 text-secondary">멤버 {g.member_count}명</p>
+                </div>
+                {g.role === 'owner' ? <Chip>관리자</Chip> : null}
+              </Link>
             </Card>
           ))}
         </ul>
