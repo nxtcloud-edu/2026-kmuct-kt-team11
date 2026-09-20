@@ -4,6 +4,8 @@ import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { mbtiImage, isMbtiType } from '@/lib/mbti';
+import { useSpeechToText, useTextToSpeech, preferredSynthesizer } from '@/lib/speech';
+import type { SpeechError } from '@/lib/speech';
 import type { AgentEvent, AgentMessage, Course, SourceLink } from '@/lib/agent/types';
 
 /**
@@ -27,6 +29,9 @@ import type { AgentEvent, AgentMessage, Course, SourceLink } from '@/lib/agent/t
  * MOTION. Opacity only, at `--dur-modal`. The system's budget has no transforms,
  * so the sheet cross-fades in rather than sliding up — which also means
  * `prefers-reduced-motion` is already honoured by the token, not by a branch here.
+ *
+ * VOICE. One button in the composer, to the left of the field. It is
+ * tap-to-talk, not a hands-free call, and the argument is in `toggleVoice`.
  */
 
 type Turn = {
@@ -37,6 +42,18 @@ type Turn = {
   sources?: SourceLink[];
   failed?: boolean;
 };
+
+/**
+ * Where the composer's text is coming from. A switch for a derivation, not a
+ * copy of anything.
+ *
+ * `'mic-edited'` is a third state rather than a flag because it answers two
+ * questions at once, and they have different answers: the composer must show the
+ * typed value again, AND the message still originated at the microphone, so its
+ * answer is still spoken aloud. Someone who dictates a place name, fixes the one
+ * syllable Korean STT always mangles, and sends it has not stopped using voice.
+ */
+type Draft = 'typed' | 'mic' | 'mic-edited';
 
 /**
  * Starter prompts, and they are not decoration.
@@ -68,12 +85,50 @@ export function AgentSheet({
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
+  const [draft, setDraft] = useState<Draft>('typed');
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  /* ── Voice ───────────────────────────────────────────────────────────────── */
+
+  /**
+   * Both halves of voice mode are existing parts, used as they were written.
+   * `useSpeechToText` is the Web Speech API on-device; `useTextToSpeech` speaks
+   * the answer. Neither touches the microphone or the speaker until something
+   * below calls `start()` or `speak()` — mounting this sheet asks the user for
+   * nothing.
+   *
+   * `preferredSynthesizer()` is the browser's own voice unless the hosted one
+   * has been opted into AND is usable; see lib/speech/fallback-synthesizer.ts.
+   * Created through a lazy initialiser so it is built once per mounted sheet
+   * rather than on every render.
+   */
+  const mic = useSpeechToText({ lang: 'ko-KR' });
+  const [synthesizer] = useState(preferredSynthesizer);
+  const voice = useTextToSpeech({ synthesizer, lang: 'ko-KR' });
+
+  /**
+   * What the composer shows — DERIVED, every render, from whichever source owns
+   * the draft. Nothing copies the transcript into `input`.
+   *
+   * That is the whole reason `draft` exists. `mic.transcript` lives in the
+   * speech hook's external store and changes on its own schedule, including when
+   * Chrome ends a session by itself after a pause — which, with the recogniser's
+   * `continuous = false`, is the ORDINARY ending rather than an edge case.
+   * Mirroring it into `input` would mean an effect that writes state it just
+   * read, one render per interim word, and a frame of stale text every time a
+   * session ended without a tap. Deriving costs nothing and cannot go stale.
+   *
+   * `|| input` keeps a half-typed draft visible until the first word is actually
+   * recognised, so tapping the mic and changing your mind does not eat it.
+   */
+  const composed = draft === 'mic' ? mic.transcript || input : input;
+  /** The message started at the microphone, so its answer is spoken back. */
+  const byVoice = draft !== 'typed';
 
   /* ── Focus and dismissal ─────────────────────────────────────────────────── */
 
@@ -97,10 +152,68 @@ export function AgentSheet({
   function close() {
     abortRef.current?.abort();
     abortRef.current = null;
+    // Both of these are dismissal, not cleanup, and both have to be here rather
+    // than in an unmount effect: the hooks live above the `!open` early return,
+    // so closing the sheet does not unmount them. Left out, a closed sheet keeps
+    // talking to a room that has moved on, and the microphone stays open behind
+    // a screen the user believes they left. Escape reaches this too.
+    voice.stop();
+    mic.stop();
     setBusy(false);
     setStatus(null);
     returnFocusTo.current?.focus();
     onClose();
+  }
+
+  /**
+   * The voice control. One button, three jobs, and only ever one of them live.
+   *
+   * TAP-TO-TALK, NOT A CALL. The ask was for a "voice call button", and a call
+   * is the wrong shape here for three reasons that compound. (1) The recogniser
+   * is `continuous = false` — it ends on a natural pause — so hands-free would
+   * mean restarting a session on every `onend`, which is new session logic, and
+   * the brief is to reuse these two hooks rather than write a third
+   * implementation. (2) A real call needs barge-in: hearing the user start
+   * talking over the answer, with echo cancellation between `speechSynthesis`
+   * output and the microphone. The Web Speech API gives us none of that, and
+   * faking it means the assistant's own voice dictating the next question. (3)
+   * The sheet is 100dvh and people leave it open. A hands-free mode leaves a hot
+   * microphone in it, and in Chrome that microphone is streaming to a remote
+   * recogniser — a standing privacy cost for a feature whose turns are bursty
+   * anyway, because the question being asked is about the screen behind the
+   * sheet. So: one tap opens the microphone, one tap closes it.
+   *
+   * Toggle rather than press-and-hold. Hold needs pointer capture, breaks when a
+   * thumb slides off a 44px target mid-sentence, and has no honest keyboard or
+   * switch-control equivalent. A toggle behaves identically for touch, keyboard
+   * and switch users, which press-and-hold never does.
+   *
+   * STOPPING MATTERS MORE THAN STARTING, so the same button is the stop button
+   * and it is the largest, nearest control on screen while the answer plays —
+   * no hunting, no second affordance to learn. The two stops never contend:
+   * silencing the answer is checked first because you cannot talk over it, which
+   * makes a tap during playback mean "quiet" and the next tap mean "my turn".
+   * Closing the sheet and sending a new message stop the speech as well.
+   */
+  function toggleVoice() {
+    if (voice.speaking) {
+      voice.stop();
+      return;
+    }
+    if (mic.listening) {
+      mic.stop();
+      return;
+    }
+    // A session starts from empty rather than from whatever the last one left
+    // behind, so `composed` cannot briefly show the previous question.
+    mic.reset();
+    setDraft('mic');
+    // FIRST contact with the microphone in this component, inside a click
+    // handler, which is also the moment the browser raises its permission
+    // prompt. Nothing on mount and nothing on open touches it — a sheet that
+    // asked for the microphone just for being opened would be refused once and
+    // then refused forever.
+    mic.start();
   }
 
   useEffect(() => {
@@ -134,9 +247,14 @@ export function AgentSheet({
 
   /* ── Sending ─────────────────────────────────────────────────────────────── */
 
-  async function send(text: string) {
+  async function send(text: string, spoken = false) {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
+
+    // Asking the next question ends the last answer and closes the microphone.
+    // Both are no-ops when idle.
+    voice.stop();
+    mic.stop();
 
     const userTurn: Turn = { id: crypto.randomUUID(), role: 'user', text: trimmed };
     const modelTurn: Turn = { id: crypto.randomUUID(), role: 'model', text: '' };
@@ -151,6 +269,9 @@ export function AgentSheet({
 
     setTurns((prev) => [...prev, userTurn, modelTurn]);
     setInput('');
+    // Back to the typed source, so the settled transcript cannot reappear behind
+    // a field the user just watched empty.
+    setDraft('typed');
     setBusy(true);
     // Doherty: the acknowledgement has to land immediately, not when the first
     // token does. A tool-calling turn's first model call alone is over a second.
@@ -161,6 +282,12 @@ export function AgentSheet({
 
     const patch = (fn: (t: Turn) => Turn) =>
       setTurns((prev) => prev.map((t) => (t.id === modelTurn.id ? fn(t) : t)));
+
+    /**
+     * The answer, accumulated here rather than read back out of `turns`, so the
+     * spoken text is whatever this turn produced and nothing else.
+     */
+    let answer = '';
 
     try {
       const res = await fetch('/api/agent', {
@@ -175,6 +302,7 @@ export function AgentSheet({
       // it is still an RFC 9457 problem document — see the note in the route.
       if (!res.ok || !res.body) {
         const detail = await problemDetail(res);
+        answer = detail;
         patch((t) => ({ ...t, text: detail, failed: true }));
         return;
       }
@@ -187,6 +315,7 @@ export function AgentSheet({
             setStatus((cur) => (event.done ? (cur === event.label ? null : cur) : event.label));
             break;
           case 'text':
+            answer += event.delta;
             patch((t) => ({ ...t, text: t.text + event.delta }));
             break;
           case 'course':
@@ -196,6 +325,9 @@ export function AgentSheet({
             patch((t) => ({ ...t, sources: event.sources }));
             break;
           case 'error':
+            // Spoken too. Someone who asked out loud and is not looking at the
+            // screen has to be told the answer is not coming.
+            answer = event.detail;
             patch((t) => ({ ...t, text: event.detail, failed: true }));
             break;
           case 'done':
@@ -206,12 +338,38 @@ export function AgentSheet({
     } catch (e) {
       // An abort is the user closing the sheet, not a failure to report.
       if ((e as Error)?.name !== 'AbortError') {
-        patch((t) => ({ ...t, text: '서버에 연결하지 못했어요.', failed: true }));
+        answer = '서버에 연결하지 못했어요.';
+        patch((t) => ({ ...t, text: answer, failed: true }));
       }
     } finally {
       setBusy(false);
       setStatus(null);
       abortRef.current = null;
+
+      /**
+       * WHEN THE ANSWER IS SPOKEN: once, here, with the whole thing — never per
+       * `text` delta.
+       *
+       * Per-delta is not merely choppy, it is silent: `BrowserSynthesizer.speak`
+       * opens with `speechSynthesis.cancel()`, so every delta would kill the
+       * syllable before it. Speaking sentence-by-sentence has the same problem
+       * one level up — it would need a queue, which means changing the backend
+       * contract PR #8 just established, in which a backend speaks one utterance
+       * and reports start/end.
+       *
+       * Waiting for `done` costs less than it looks like. What makes a turn slow
+       * is the tools — an Apify run is tens of seconds — and all of that has
+       * already happened by the time the first token lands; the text itself
+       * arrives in a burst. And a course arrives as a `course` event, not as
+       * text, so an answer spoken early would be prose about a card that had not
+       * been drawn yet.
+       *
+       * `spoken` gates it on the question having been ASKED aloud. A user who
+       * typed is not expecting the room to hear the reply. `aborted` gates out a
+       * closed sheet: `close()` aborts and stops the voice, and without this
+       * check the answer would start talking a moment afterwards.
+       */
+      if (spoken && answer && !controller.signal.aborted) voice.speak(answer);
     }
   }
 
@@ -260,7 +418,7 @@ export function AgentSheet({
 
         <div ref={scrollerRef} className="flex-1 overflow-y-auto px-[var(--gutter)] pb-[var(--space-11)]">
           {empty ? (
-            <Intro displayName={displayName} onPick={(s) => void send(s)} />
+            <Intro displayName={displayName} onPick={(s) => void send(s, false)} />
           ) : (
             <ol className="flex flex-col gap-[var(--space-13)] pt-[var(--space-13)]">
               {turns.map((t) => (
@@ -286,10 +444,29 @@ export function AgentSheet({
 
         <Composer
           ref={inputRef}
-          value={input}
-          onChange={setInput}
-          onSend={() => void send(input)}
+          value={composed}
+          onChange={(v) => {
+            setInput(v);
+            // Typing over a dictation keeps the turn a voice turn — the composer
+            // just stops mirroring the transcript. See the `Draft` note.
+            setDraft((d) => (d === 'typed' ? 'typed' : 'mic-edited'));
+          }}
+          onSend={() => void send(composed, byVoice)}
           busy={busy}
+          voice={{
+            // No button at all rather than a disabled one. Web Speech is
+            // Chromium-strong and absent in Firefox, and a dead control there
+            // would invite a tap and then explain nothing — this is a touch
+            // design with no hover vocabulary to hang a reason on, and
+            // "use a different browser" is not an action available inside the
+            // app. The sheet is fully usable by typing, so the honest move is to
+            // not advertise a capability this browser does not have.
+            available: mic.supported,
+            listening: mic.listening,
+            speaking: voice.speaking,
+            notice: micNotice(mic.error, mic.listening),
+            onToggle: toggleVoice,
+          }}
         />
       </div>
     </div>
@@ -528,18 +705,30 @@ function Sources({ sources }: { sources: SourceLink[] }) {
 
 /* ── Composer ─────────────────────────────────────────────────────────────── */
 
+type VoiceControl = {
+  /** The browser can hear at all. False hides the button entirely. */
+  available: boolean;
+  listening: boolean;
+  speaking: boolean;
+  /** One line to show under the field, or null. */
+  notice: string | null;
+  onToggle: () => void;
+};
+
 function Composer({
   ref,
   value,
   onChange,
   onSend,
   busy,
+  voice,
 }: {
   ref: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
   onChange: (v: string) => void;
   onSend: () => void;
   busy: boolean;
+  voice: VoiceControl;
 }) {
   // A textarea, not an input, because a question about a day out runs to two
   // lines and a single-line field hides the start of what you typed. It grows to
@@ -552,47 +741,147 @@ function Composer({
 
   return (
     <div
-      className="flex items-end gap-[var(--space-7)] border-t border-divider bg-canvas
-                 px-[var(--gutter)] pt-[var(--space-9)]
+      className="border-t border-divider bg-canvas px-[var(--gutter)] pt-[var(--space-9)]
                  pb-[calc(var(--space-9)+env(safe-area-inset-bottom))]"
     >
-      <textarea
-        ref={ref}
-        rows={1}
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          resize(e.target);
-        }}
-        onKeyDown={(e) => {
-          // Enter sends, Shift+Enter breaks a line — but only on a keyboard.
-          // `isComposing` is why this is not a one-liner: mid-Hangul, Enter is
-          // the IME committing a syllable, and sending there would cut the word
-          // in half. Every Korean text field that gets this wrong is hated.
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            onSend();
-          }
-        }}
-        placeholder="오늘 어디 갈까요?"
-        aria-label="어시스턴트에게 보낼 메시지"
-        className="max-h-24 min-h-[var(--tap-min)] flex-1 resize-none rounded-[var(--radius-lg)]
-                   bg-surface-2 px-[var(--space-11)] py-[var(--space-9)] outline-none"
-        style={{ font: 'var(--type-body)' }}
-      />
+      {/* Announced, not just drawn: while the microphone is open the words land
+          in the field, and a field's value changing is not something a screen
+          reader says. `polite` — it must not cut across the answer being read.
 
-      <button
-        onClick={onSend}
-        disabled={busy || value.trim() === ''}
-        aria-label="보내기"
-        className="grid h-[var(--tap-min)] w-[var(--tap-min)] shrink-0 place-items-center
-                   rounded-[var(--radius-circle)] bg-ink text-on-ink transition-opacity duration-200
-                   active:opacity-[var(--press-opacity)] disabled:opacity-40"
+          Always mounted, never conditional. A live region that appears at the
+          same moment as its first content is usually announced by nothing —
+          screen readers watch regions that were already there. Empty it is a
+          flex box with no children, so it is also zero pixels tall. */}
+      <p
+        aria-live="polite"
+        className={`flex items-center gap-[var(--space-7)] text-secondary ${
+          voice.listening || voice.notice ? 'mb-[var(--space-8)]' : ''
+        }`}
+        style={{ font: 'var(--type-meta)' }}
       >
-        <Send />
-      </button>
+        {voice.listening ? <Pulse /> : null}
+        {voice.listening ? '듣고 있어요' : voice.notice}
+      </p>
+
+      <div className="flex items-end gap-[var(--space-7)]">
+        {voice.available ? <VoiceButton {...voice} busy={busy} /> : null}
+
+        <textarea
+          ref={ref}
+          rows={1}
+          value={value}
+          // Read-only rather than disabled while the microphone is open: you
+          // cannot type and dictate into the same field at once, but a disabled
+          // field drops out of the tab order and stops being readable to a
+          // screen reader — which is the one moment its contents are changing.
+          readOnly={voice.listening}
+          onChange={(e) => {
+            onChange(e.target.value);
+            resize(e.target);
+          }}
+          onKeyDown={(e) => {
+            // Enter sends, Shift+Enter breaks a line — but only on a keyboard.
+            // `isComposing` is why this is not a one-liner: mid-Hangul, Enter is
+            // the IME committing a syllable, and sending there would cut the word
+            // in half. Every Korean text field that gets this wrong is hated.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          placeholder="오늘 어디 갈까요?"
+          aria-label="어시스턴트에게 보낼 메시지"
+          className="max-h-24 min-h-[var(--tap-min)] flex-1 resize-none rounded-[var(--radius-lg)]
+                     bg-surface-2 px-[var(--space-11)] py-[var(--space-9)] outline-none"
+          style={{ font: 'var(--type-body)' }}
+        />
+
+        <button
+          onClick={onSend}
+          disabled={busy || value.trim() === ''}
+          aria-label="보내기"
+          className="grid h-[var(--tap-min)] w-[var(--tap-min)] shrink-0 place-items-center
+                     rounded-[var(--radius-circle)] bg-ink text-on-ink transition-opacity duration-200
+                     active:opacity-[var(--press-opacity)] disabled:opacity-40"
+        >
+          <Send />
+        </button>
+      </div>
     </div>
   );
+}
+
+/**
+ * Three states, no new tokens.
+ *
+ * Idle is the transparent `secondary` treatment the close button already uses,
+ * so it reads as chrome next to the field rather than as a second send button.
+ * Listening inverts to `ink`/`on-ink` — the same device the send button uses to
+ * say "this one is the action", and the one way to make a control obviously
+ * live without a colour the system does not have and without a fourth shadow.
+ * Speaking is a tinted `surface-2` fill with a stop glyph: present, clearly
+ * pressable, clearly not the same thing as listening.
+ *
+ * Only the label tells a screen reader which job the button currently has, and
+ * there is deliberately no `aria-pressed`: across these three states the control
+ * is not one toggle with an on and an off, and announcing it as one would be a
+ * worse description than the label it already changes to.
+ */
+function VoiceButton({
+  listening,
+  speaking,
+  busy,
+  onToggle,
+}: VoiceControl & { busy: boolean }) {
+  const label = speaking ? '읽어주기 멈추기' : listening ? '말하기 끝내기' : '음성으로 말하기';
+  const fill = listening
+    ? 'bg-ink text-on-ink'
+    : speaking
+      ? 'bg-surface-2 text-ink'
+      : 'text-secondary';
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      // Only while a turn is in flight, matching the send button — a message
+      // dictated now could not be sent anyway. Stopping the answer being read is
+      // never blocked by this, because reading only starts once the turn is done.
+      disabled={busy}
+      aria-label={label}
+      className={`grid h-[var(--tap-min)] w-[var(--tap-min)] shrink-0 place-items-center
+                  rounded-[var(--radius-circle)] transition-opacity duration-200
+                  active:opacity-[var(--press-opacity)] disabled:opacity-40 ${fill}`}
+    >
+      {speaking ? <StopSquare /> : <Mic />}
+    </button>
+  );
+}
+
+/**
+ * What to say about a recognition error, derived rather than stored.
+ *
+ * Only two of these are worth a user's attention, and the filtering is the
+ * point. `aborted` is our own `stop()` and is not news. A live session's earlier
+ * error is not news either — the words are arriving. `not-allowed` is the one
+ * that is genuinely actionable, and it is the only one that gets told where to
+ * go, because a permission the user denied is the only failure here they can
+ * actually undo.
+ */
+function micNotice(error: SpeechError | null, listening: boolean): string | null {
+  if (!error || listening) return null;
+  switch (error.code) {
+    case 'aborted':
+      return null;
+    case 'not-allowed':
+      return '마이크가 차단되어 있어요. 주소창의 자물쇠에서 허용해 주세요.';
+    case 'no-speech':
+      return '아무 말도 못 들었어요.';
+    case 'network':
+      return '음성 인식에 연결하지 못했어요.';
+    default:
+      return '음성 인식이 안 됐어요. 직접 입력해 주세요.';
+  }
 }
 
 /* ── NDJSON ───────────────────────────────────────────────────────────────── */
@@ -677,6 +966,24 @@ function Send() {
   return (
     <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden>
       <path d="M12 19V5M5 12l7-7 7 7" {...stroke} />
+    </svg>
+  );
+}
+
+function Mic() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden>
+      <rect x="9" y="3" width="6" height="11" rx="3" {...stroke} />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" {...stroke} />
+    </svg>
+  );
+}
+
+/** Stop, not pause: the answer is not resumable, and a pause glyph would promise it is. */
+function StopSquare() {
+  return (
+    <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden>
+      <rect x="7" y="7" width="10" height="10" rx="2.5" {...stroke} />
     </svg>
   );
 }
