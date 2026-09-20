@@ -84,6 +84,29 @@ export type InboxClip = {
   igsid: string;
 
   /**
+   * The sender's Instagram @handle as INSTAGRAM reported it, without the '@',
+   * or null when the payload named the sender only by id.
+   *
+   * NOT TYPED BY THE SENDER. It is `thread.users[].username` off the inbox
+   * payload, matched to the item's `user_id` — Instagram's own answer to "who
+   * owns this account", arriving over the same authenticated read as the reel.
+   * A person cannot put someone else's handle here; they would have to be
+   * sending from that account.
+   *
+   * THIS FIELD ROUTES REELS, and that is a decision with a cost. It is the
+   * fallback `resolveSenderToUser` matches against `users.instagram_handle`
+   * when `igsid` is unknown, which is what makes a brand-new sender work
+   * without a manual database write. What it proves and what it does not is
+   * written out in lib/ingest/route-sender.ts and in
+   * docs/gaja/instagram-binding.md; read those before widening its use.
+   *
+   * Lowercased at the parse layer, because `users_instagram_handle_lower_idx`
+   * and the `users_instagram_handle_shape` CHECK both store the lowercase form
+   * and Instagram treats handles as case-insensitive.
+   */
+  senderUsername: string | null;
+
+  /**
    * Stable per reel across shares and senders. The shortcode where one is
    * present (`DZrAQQMPiAt`), the media pk otherwise. Feeds
    * `reels.reel_video_id`, whose `unique (user_id, reel_video_id)` is what makes
@@ -150,4 +173,49 @@ export type InboxClip = {
  */
 export interface InboxSource {
   fetchNewClips(since: Date | null): Promise<InboxClip[]>;
+
+  /**
+   * What the last `fetchNewClips` did BESIDES returning clips, or null if it has
+   * not run yet. Optional, and it must stay optional: a webhook source has no
+   * message-request folder to read and nothing to report about one.
+   *
+   * It exists because the pending-inbox read can fail in a way that returning
+   * `[]` cannot express. "No message requests" and "the message-request endpoint
+   * would not answer" are the same empty array, and the second one is the bug
+   * this reporting was added to make impossible to miss.
+   */
+  lastReport?(): InboxSourceReport | null;
 }
+
+/**
+ * The parts of a pass that are not clips: whether the message-request folder
+ * could be read at all, and what was approved in order to read it.
+ *
+ * COUNTS AND SHORT TAGS ONLY. This is copied into the ingest pass summary, which
+ * is returned over HTTP to whoever holds `CRON_SECRET` and printed by
+ * scripts/watch-inbox.ts. No handles of strangers, no captions, no thread ids —
+ * a thread id identifies a private conversation and belongs in neither.
+ */
+export type InboxSourceReport = {
+  /**
+   * `ok` — the message-request folder was read.
+   * `unreachable` — it was attempted and no host would answer. `reason` says which.
+   * `skipped` — not attempted at all this pass.
+   */
+  pendingRead: 'ok' | 'unreachable' | 'skipped';
+  /** A short tag, never a response body. Null when `pendingRead` is 'ok'. */
+  pendingReason: string | null;
+  /** Message-request threads seen in the pending folder. */
+  pendingThreadsSeen: number;
+  /** Of those, threads accepted so their reels could be ingested. */
+  pendingThreadsApproved: number;
+  /**
+   * Instagram's OWN count of waiting message requests, off the ordinary inbox
+   * response (`pending_requests_total`), or null when the payload omitted it.
+   *
+   * THE CROSS-CHECK, and the reason the unreachable case is not silent. A number
+   * above zero here next to `pendingRead: 'unreachable'` is a specific, visible
+   * statement: somebody is DMing this account and we cannot see it.
+   */
+  pendingRequestsTotal: number | null;
+};

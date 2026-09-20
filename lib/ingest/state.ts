@@ -98,22 +98,65 @@ export async function tripBreaker(source: string, reason: string): Promise<void>
 }
 
 /**
- * Stamps an attempt before the request leaves.
+ * Asks for this pass's turn and, if it gets one, spends the budget in the same
+ * statement. Returns true when the caller may poll, false when it is too soon.
  *
- * Written first, not last, for the same reason `recordAttempt` in
+ * WRITTEN FIRST, NOT LAST, for the same reason `recordAttempt` in
  * app/api/auth/password/route.ts writes its row before verifying the password: a
  * floor enforced from a timestamp that is only written on the way out is not a
  * floor at all — a pass that hangs, crashes or is killed mid-flight leaves the
  * previous attempt's time in place, and the next invocation is free to poll
  * immediately. Marking the attempt as it starts means the budget is spent the
  * moment a request is admitted, whatever becomes of it.
+ *
+ * ONE STATEMENT, AND THAT IS THE SINGLE-FLIGHT. This used to be a read
+ * (`getIngestState`), a comparison in TypeScript, and then a separate write. That
+ * is read-then-write, and read-then-write is not a lock: N callers that read the
+ * same stale `last_attempt_at` all pass the comparison and all poll. It went
+ * unnoticed while the only callers were a daily cron and one local watcher. It
+ * stopped being survivable the moment the ingest pass was hung off
+ * /api/reels/status (lib/ingest/kick.ts), where the number of callers is the
+ * number of people with the home screen open — a burst of simultaneous requests
+ * to Instagram from one datacentre is the shape of traffic that gets an account
+ * challenged.
+ *
+ * The conditional UPDATE closes it: the row is the lock, `where` is the test,
+ * and the second caller's `where` no longer matches because the first already
+ * moved the timestamp. Same mechanism, same column, no second mechanism — this
+ * is `claimCategory` in lib/events/state.ts, applied to the poller.
+ *
+ * The insert is the first-run path only, and it is guarded by `where not exists`
+ * rather than `on conflict do update` so that losing an insert race cannot also
+ * hand out the turn.
  */
-export async function markAttempt(source: string): Promise<void> {
-  await query(
-    `insert into ingest_state (source, last_attempt_at) values ($1, now())
-     on conflict (source) do update set last_attempt_at = now()`,
+export async function claimAttempt(source: string, minIntervalMs: number): Promise<boolean> {
+  // Seconds, because make_interval takes them. Sub-second floors round DOWN to
+  // zero, which is the honest reading of "as fast as you can": the caller asked
+  // for no floor and the clamp in InstagramPollSource is what stops it being one.
+  const seconds = Math.floor(minIntervalMs / 1000);
+
+  const claimed = await queryOne<{ source: string }>(
+    `update ingest_state
+        set last_attempt_at = now()
+      where source = $1
+        and (last_attempt_at is null
+             or last_attempt_at < now() - make_interval(secs => $2::int))
+      returning source`,
+    [source, seconds],
+  );
+  if (claimed) return true;
+
+  // No row updated means either "too soon" or "this source has never run". Only
+  // the second is worth an insert, and `where not exists` makes the insert lose
+  // silently when a concurrent caller got there first.
+  const inserted = await queryOne<{ source: string }>(
+    `insert into ingest_state (source, last_attempt_at)
+     select $1, now()
+      where not exists (select 1 from ingest_state where source = $1)
+     returning source`,
     [source],
   );
+  return inserted !== null;
 }
 
 /** A pass that completed with nothing failed. Clears the last error. */

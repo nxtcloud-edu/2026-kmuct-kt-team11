@@ -2,6 +2,9 @@
   "_fixture_note": "SYNTHETIC. Hand-written to the SHAPE recorded in docs/gaja/reel-extraction-findings.md, not captured from a live account. Every id, handle, venue, address and caption below is invented; no real third-party caption or personal data is committed here. The shape is the thing under test: microsecond timestamps, the item.clip.clip envelope and its flattened variant, item_type filtering, a caption that carries the venues, and the image_versions2 candidate ladder. Every candidate URL points at cdn.example.invalid — .invalid cannot resolve, so a test that started fetching these would fail loudly instead of quietly reaching a real CDN.",
   "status": "ok",
   "seq_id": 111222333,
+  "pending_requests_total": 2,
+  "has_pending_top_requests": true,
+  "unread_pending_requests": 2,
   "snapshot_at_ms": 1758331200000,
   "inbox": {
     "unseen_count": 2,
@@ -11,7 +14,8 @@
         "users": [
           {
             "pk": "17841400000000001",
-            "username": "fixture_sender_one"
+            "username": "fixture_sender_one",
+            "pk_id": "17841400000000001"
           }
         ],
         "items": [
@@ -157,7 +161,7 @@
         "users": [
           {
             "pk": "17841400000000002",
-            "username": "fixture_sender_two"
+            "username": "Fixture_Sender_Two"
           }
         ],
         "items": [

@@ -147,13 +147,13 @@ export function ReelGuideCompact({ linked, handle }: { linked: boolean; handle: 
               {`@${handle}`}
             </span>
             <span className="shrink-0 text-secondary" style={{ font: 'var(--type-meta)' }}>
-              {linked ? '하루에 한 번' : '아직 안 돼요'}
+              {linked ? '하루에 한 번' : '아이디 먼저'}
             </span>
           </div>
           <p className="mt-[var(--space-3)] text-secondary" style={{ font: 'var(--type-meta)' }}>
             {linked
               ? '인스타그램에서 릴스를 열고 공유 › 메시지로 보내면 돼요.'
-              : '공유 › 메시지로 보내도 누가 보냈는지 알 수 없어서 저장되지 않아요. 연결은 가자에서 직접 해드려요.'}
+              : '계정에 인스타그램 아이디를 적어두면, 그 아이디로 보낸 릴스부터 저장돼요.'}
           </p>
         </div>
       </Card>
@@ -199,13 +199,21 @@ export function ReelGuide({ linked, handle }: { linked: boolean; handle: string 
           <Item term="지금 상태">
             <p style={{ font: 'var(--type-body)' }}>아직 이 계정은 인스타그램과 연결되지 않았어요.</p>
             <p className="mt-[var(--space-3)] text-secondary" style={{ font: 'var(--type-meta)' }}>
-              지금 메시지로 릴스를 보내면 누가 보낸 건지 알 수 없어서 저장되지 않아요. 연결은 가자에서
-              직접 해드려야 해서, 그때까지는 위에 주소를 붙여넣는 방법만 쓸 수 있어요.
+              지금 메시지로 릴스를 보내면 누가 보낸 건지 알 수 없어서 저장되지 않아요. 계정에
+              인스타그램 아이디를 적어두면, 그 아이디로 보낸 릴스부터 자동으로 저장돼요. 아이디를
+              적기 전에 보낸 릴스는 다시 보내 주세요.
             </p>
-            {/* The handle is worth typing anyway — it is what a future linking
-                step looks the account up by. The copy says exactly what
-                instagram-card.tsx says so the two screens cannot promise
-                different things about the same field. */}
+            {/* THIS COPY USED TO SAY 연결은 가자에서 직접 해드려야 해서, and that is
+                no longer true: typing the handle IS the connection now. A DM
+                from an account whose username matches a claimed
+                `instagram_handle` binds `igsid` on arrival. Copy that tells a
+                user not to bother is worse than no copy — they read it and stop.
+
+                It still does not promise the reel they ALREADY sent will
+                appear. Binding happens when a clip arrives, and a clip that was
+                dropped before the claim existed is not replayed, so the last
+                sentence asks for a re-send rather than leaving them waiting on
+                something that is never coming. */}
             <Link
               href="/account"
               className="mt-[var(--space-8)] inline-flex min-h-[var(--tap-min)] items-center text-ink"

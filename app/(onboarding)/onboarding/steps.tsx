@@ -174,9 +174,16 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
 
         {step === 4 && (
           <Step heading="인스타그램 아이디 알려주실래요?">
+            {/* The copy changed on 2026-09-20 with the thing it describes. It
+                used to promise a feature in preparation — 아직 준비 중인 기능
+                — because `users.igsid` could only be written by a Meta webhook
+                that was never built, so a typed handle really did nothing. It
+                now binds the sender on their first share
+                (lib/ingest/route-sender.ts), so the honest copy is an
+                instruction, not a placeholder. */}
             <p className="text-secondary" style={{ font: 'var(--type-meta)' }}>
-              나중에 가자 인스타그램으로 릴스를 보내면 이 계정에 모아둘 수 있어요. 아직
-              준비 중인 기능이라, 아이디만 미리 받아둘게요.
+              가자 인스타그램으로 릴스를 보내면 이 계정에 모아둘게요. 이 아이디로 보낸
+              릴스를 알아볼 수 있게 미리 받아둬요.
             </p>
             <div className="flex h-[var(--field-height)] w-full items-center rounded-[var(--radius-2xl)] bg-surface-1 px-[var(--space-11)]">
               <span className="text-secondary" style={{ font: 'var(--type-body)' }} aria-hidden>
@@ -202,7 +209,7 @@ export function OnboardingSteps({ initialName }: { initialName: string }) {
             <p id="handle-note" className="text-secondary" style={{ font: 'var(--type-caption)' }}>
               {handleMalformed
                 ? '영문 소문자와 숫자, 마침표, 밑줄만 쓸 수 있어요.'
-                : '아이디만으로는 연결되지 않아요. 나중에 인스타그램에서 한 번 더 확인해요.'}
+                : '이 아이디로 릴스를 한 번 보내면 연결돼요.'}
             </p>
           </Step>
         )}

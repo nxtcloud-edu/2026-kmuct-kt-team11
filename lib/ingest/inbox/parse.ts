@@ -1,5 +1,6 @@
 /**
- * Reading `GET /api/v1/direct_v2/inbox/` — the pure half of the Instagram poller.
+ * Reading `GET /api/v1/direct_v2/inbox/` and the message-request folder beside
+ * it — the pure half of the Instagram poller.
  *
  * Kept apart from instagram-poll.ts, which owns the network, the cookies and the
  * circuit breaker, so that the part with the interesting bugs can be tested
@@ -25,6 +26,16 @@
  * pipeline: one definition of how an Instagram media object becomes a reel, used
  * by both, so the two can never disagree about which cover frame to keep or how
  * much of a caption counts.
+ *
+ * AND A THIRD READER, added 2026-09-20: `parsePendingThreads`, for the message
+ * REQUEST folder — where a reel from somebody who does not follow the Gaja
+ * account lands, and where every new user's first share therefore lands. It
+ * shares `clipsInThread` with the ordinary inbox because the two return the same
+ * thread shape, and two readers would be two chances to disagree about what a
+ * clip is. What it does NOT share is the return type: a pending thread comes back
+ * with its `thread_id`, because accepting a message request is a write to
+ * somebody else's conversation and the caller has to be able to name the one
+ * thread it is accepting.
  */
 
 import type { InboxClip, InboxThumb, InboxVideo } from './index';
@@ -250,7 +261,9 @@ function videoOf(media: Json): InboxVideo | null {
  * Takes the MEDIA, not the DM item that wraps it. Unwrapping `item.clip.clip` is
  * the inbox payload's problem and stays in `mediaOf`.
  */
-export function readMedia(value: unknown): Omit<InboxClip, 'igsid' | 'sharedAt'> | null {
+export function readMedia(
+  value: unknown,
+): Omit<InboxClip, 'igsid' | 'senderUsername' | 'sharedAt'> | null {
   const media = obj(value);
   if (!media) return null;
 
@@ -307,6 +320,90 @@ export type ParseOptions = {
 };
 
 /**
+ * Who the people in a thread are, by id.
+ *
+ * `thread.users[]` is the ONLY place a sender's @handle appears; the items carry
+ * a bare `user_id` and nothing else. Both `pk` and `pk_id` are indexed because
+ * the payload carries both and has been seen to supply one without the other —
+ * they are the same number, one as a JSON number and one as a string, and
+ * `str()` already prefers the exact form.
+ *
+ * Lowercased here rather than at the caller so there is exactly one place the
+ * casing rule lives. `users_instagram_handle_lower_idx` and the
+ * `users_instagram_handle_shape` CHECK both hold the lowercase form; a handle
+ * that reached `resolveSenderToUser` as typed by Instagram would miss its own
+ * row over a capital letter.
+ */
+function usernamesById(thread: Json): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const raw of arr(thread.users)) {
+    const u = obj(raw);
+    if (!u) continue;
+    const username = str(u.username);
+    if (!username) continue;
+    for (const key of [str(u.pk), str(u.pk_id)]) {
+      if (key) out.set(key, username.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/**
+ * Every clip share in one thread's `items[]`, unsorted.
+ *
+ * Shared by the ordinary inbox and the message-request folder, which return the
+ * SAME thread shape on the same endpoint family — verified against the live
+ * inbox on 2026-09-20, where a pending thread differs from an accepted one by a
+ * `pending: true` flag and nothing that matters here. Two readers would be two
+ * chances to disagree about what a clip is.
+ */
+function clipsInThread(thread: Json, opts: ParseOptions): InboxClip[] {
+  const handles = usernamesById(thread);
+  const out: InboxClip[] = [];
+
+  for (const rawItem of arr(thread.items)) {
+    const item = obj(rawItem);
+    if (!item) continue;
+
+    // The one filter that is not defensive: a thread carries text, reactions,
+    // link shares and post shares alongside clips, and only `clip` is a reel.
+    // `product_type: 'clips'` on the media says the same thing, but it lives
+    // one level down and is absent in some captures, so the item-level type is
+    // the gate.
+    if (item.item_type !== 'clip') continue;
+
+    const sender = str(item.user_id);
+    if (!sender) continue;
+    if (sender === opts.selfUserId) continue;
+
+    const sharedAt = toDate(item.timestamp);
+    if (!sharedAt) continue;
+    if (opts.since && sharedAt.getTime() <= opts.since.getTime()) continue;
+
+    const media = mediaOf(item);
+    if (!media) continue;
+
+    // The five fields, read by the shared definition above rather than here.
+    // A media with no id at all is skipped, on this file's standing rule: one
+    // malformed item must not cost the other nine.
+    const payload = readMedia(media);
+    if (!payload) continue;
+
+    // NULL WHEN THE THREAD DID NOT NAME THIS SENDER, and null must stay
+    // survivable: a missing handle costs the handle route, never the clip. The
+    // igsid route still runs, and an unroutable clip is dropped and counted.
+    out.push({
+      igsid: sender,
+      senderUsername: handles.get(sender) ?? null,
+      ...payload,
+      sharedAt,
+    });
+  }
+
+  return out;
+}
+
+/**
  * Every clip share in an inbox payload, oldest first.
  *
  * Oldest first matters: the caller advances its cursor to the last clip it
@@ -319,44 +416,85 @@ export function parseInboxClips(payload: unknown, opts: ParseOptions): InboxClip
   if (!inbox) return [];
 
   const out: InboxClip[] = [];
+  for (const rawThread of arr(inbox.threads)) {
+    const thread = obj(rawThread);
+    if (!thread) continue;
+    out.push(...clipsInThread(thread, opts));
+  }
 
+  out.sort((a, b) => a.sharedAt.getTime() - b.sharedAt.getTime());
+  return out;
+}
+
+/**
+ * Instagram's own count of waiting message requests, off any inbox response.
+ *
+ * THE CROSS-CHECK THAT MAKES AN UNREADABLE REQUEST FOLDER LOUD. The ordinary
+ * `/inbox/` response carries `pending_requests_total` at the top level — a
+ * number the account holder sees as the "Requests" badge — and it arrives on the
+ * read the poller already makes, for free. When the message-request folder
+ * cannot be read, this is the difference between "nobody is DMing us" and
+ * "somebody is DMing us and we are blind to it".
+ *
+ * Null when the field is absent, which is NOT zero: a payload that stopped
+ * carrying the field must not be reported as an empty request folder.
+ */
+export function parsePendingRequestsTotal(payload: unknown): number | null {
+  const root = obj(payload);
+  if (!root) return null;
+  const raw = root.pending_requests_total;
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * One message-request thread: the id needed to accept it, and the reels in it.
+ *
+ * `threadId` DOES NOT CROSS THE `InboxSource` SEAM and must not start to. It is
+ * an Instagram thread identifier — it names a private conversation, it means
+ * nothing to the Messaging API, and the only thing that consumes it is the
+ * approve call two functions away in instagram-poll.ts. It is kept out of
+ * `InboxClip` for exactly that reason.
+ */
+export type PendingThread = {
+  threadId: string;
+  /** Clips already filtered by `since` and by sender, oldest first. */
+  clips: InboxClip[];
+};
+
+/**
+ * The message-request folder, as threads rather than as a flat clip list.
+ *
+ * THE SHAPE IS THE POINT. Accepting a message request is a write to somebody
+ * else's conversation, so the caller has to be able to say "approve THIS thread
+ * because it has a reel in it" — which a flat list of clips cannot express. A
+ * thread with no clips in it comes back with an empty `clips` array rather than
+ * being dropped here, because "seen but not worth approving" and "not seen" are
+ * different facts and the pass summary reports both.
+ *
+ * Pure, like everything else in this file: it approves nothing and requests
+ * nothing. It reads a payload and returns what is in it.
+ */
+export function parsePendingThreads(payload: unknown, opts: ParseOptions): PendingThread[] {
+  const root = obj(payload);
+  const inbox = root ? obj(root.inbox) : null;
+  if (!inbox) return [];
+
+  const out: PendingThread[] = [];
   for (const rawThread of arr(inbox.threads)) {
     const thread = obj(rawThread);
     if (!thread) continue;
 
-    for (const rawItem of arr(thread.items)) {
-      const item = obj(rawItem);
-      if (!item) continue;
+    // No id, no approve call — and a thread that cannot be approved cannot be
+    // ingested from either, because its reels stay behind the request wall.
+    const threadId = str(thread.thread_id);
+    if (!threadId) continue;
 
-      // The one filter that is not defensive: a thread carries text, reactions,
-      // link shares and post shares alongside clips, and only `clip` is a reel.
-      // `product_type: 'clips'` on the media says the same thing, but it lives
-      // one level down and is absent in some captures, so the item-level type is
-      // the gate.
-      if (item.item_type !== 'clip') continue;
-
-      const sender = str(item.user_id);
-      if (!sender) continue;
-      if (sender === opts.selfUserId) continue;
-
-      const sharedAt = toDate(item.timestamp);
-      if (!sharedAt) continue;
-      if (opts.since && sharedAt.getTime() <= opts.since.getTime()) continue;
-
-      const media = mediaOf(item);
-      if (!media) continue;
-
-      // The five fields, read by the shared definition above rather than here.
-      // A media with no id at all is skipped, on this file's standing rule: one
-      // malformed item must not cost the other nine.
-      const payload = readMedia(media);
-      if (!payload) continue;
-
-      out.push({ igsid: sender, ...payload, sharedAt });
-    }
+    const clips = clipsInThread(thread, opts);
+    clips.sort((a, b) => a.sharedAt.getTime() - b.sharedAt.getTime());
+    out.push({ threadId, clips });
   }
 
-  out.sort((a, b) => a.sharedAt.getTime() - b.sharedAt.getTime());
   return out;
 }
 

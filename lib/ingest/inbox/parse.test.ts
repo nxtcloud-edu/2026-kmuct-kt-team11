@@ -13,7 +13,14 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { THUMB_TARGET_WIDTH, detectBlock, parseInboxClips, pickThumbCandidate } from './parse';
+import {
+  THUMB_TARGET_WIDTH,
+  detectBlock,
+  parseInboxClips,
+  parsePendingRequestsTotal,
+  parsePendingThreads,
+  pickThumbCandidate,
+} from './parse';
 
 /** Run from the repo root; scripts/test-ingest.sh enforces that. */
 const payload: unknown = JSON.parse(
@@ -252,4 +259,129 @@ test('detectBlock leaves ordinary responses alone', () => {
   // a malformed cursor returns this too — so it must not cost a manual reset.
   assert.equal(detectBlock(400, { status: 'fail' }), null);
   assert.equal(detectBlock(500, {}), null);
+});
+
+// ── The sender's handle ──────────────────────────────────────────────────────
+//
+// The field that makes a brand-new sender routable. `thread.users[]` is the only
+// place it appears; the items carry a bare `user_id`.
+
+test('a clip carries the sender handle the thread named, matched by pk', () => {
+  const clips = parseInboxClips(payload, { selfUserId: SELF, since: null });
+  const listicle = clips.find((c) => c.reelVideoId === 'FIXTURECODE01');
+  assert.equal(listicle?.senderUsername, 'fixture_sender_one');
+  assert.equal(listicle?.igsid, '17841400000000001');
+});
+
+test('the handle is lowercased, because the column and its unique index are', () => {
+  // The fixture's second thread names its sender 'Fixture_Sender_Two'. Instagram
+  // treats handles as case-insensitive and `users_instagram_handle_lower_idx`
+  // holds the lowercase form, so a handle passed through as typed would miss its
+  // own row over a capital letter.
+  const clips = parseInboxClips(payload, { selfUserId: SELF, since: null });
+  const old = clips.find((c) => c.reelVideoId === 'OLDSHARE006');
+  assert.equal(old?.senderUsername, 'fixture_sender_two');
+});
+
+test('a thread that names nobody costs the handle, not the clip', () => {
+  const anonymous = {
+    inbox: {
+      threads: [
+        {
+          thread_id: 't-anon',
+          // No `users` at all — the shape a payload change could produce.
+          items: [
+            {
+              item_type: 'clip',
+              user_id: '999',
+              timestamp: 1758330000000000,
+              clip: { clip: { code: 'ANON01', caption: { text: 'hi' } } },
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const clips = parseInboxClips(anonymous, { selfUserId: SELF, since: null });
+  assert.equal(clips.length, 1, 'the caption is the product; a missing handle must not cost it');
+  assert.equal(clips[0].senderUsername, null);
+});
+
+// ── The message-request folder ───────────────────────────────────────────────
+
+test('pending threads come back with the id needed to approve them', () => {
+  const pending = parsePendingThreads(payload, { selfUserId: SELF, since: null });
+  assert.equal(pending.length, 2);
+  assert.ok(pending.every((t) => t.threadId.length > 0));
+  // Same clips the ordinary reader finds, since the shapes are the same.
+  assert.deepEqual(
+    pending.flatMap((t) => t.clips.map((c) => c.reelVideoId)).sort(),
+    ['FIXTURECODE01', 'FLATSHAPE004', 'OLDSHARE006'],
+  );
+});
+
+test('a pending thread with no clips is reported, not dropped', () => {
+  // "Seen but not worth approving" and "not seen" are different facts: approving
+  // is a write to somebody's account, and the pass summary reports both numbers.
+  const textOnly = {
+    inbox: {
+      threads: [
+        {
+          thread_id: 't-text',
+          users: [{ pk: '42', username: 'someone' }],
+          items: [{ item_type: 'text', user_id: '42', timestamp: 1758330000000000, text: 'hi' }],
+        },
+      ],
+    },
+  };
+  const pending = parsePendingThreads(textOnly, { selfUserId: SELF, since: null });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].clips.length, 0);
+});
+
+test('a pending thread with no id is skipped — it could not be approved anyway', () => {
+  const noId = {
+    inbox: {
+      threads: [
+        {
+          users: [{ pk: '42', username: 'someone' }],
+          items: [
+            {
+              item_type: 'clip',
+              user_id: '42',
+              timestamp: 1758330000000000,
+              clip: { clip: { code: 'NOID01' } },
+            },
+          ],
+        },
+      ],
+    },
+  };
+  assert.deepEqual(parsePendingThreads(noId, { selfUserId: SELF, since: null }), []);
+});
+
+test('parsePendingThreads is total — nonsense in, empty array out', () => {
+  for (const junk of [null, undefined, 42, 'nope', [], {}, { inbox: {} }, { inbox: null }]) {
+    assert.deepEqual(parsePendingThreads(junk, { selfUserId: SELF, since: null }), []);
+  }
+});
+
+// ── Instagram's own count of waiting requests ────────────────────────────────
+
+test('pending_requests_total is read off the ordinary inbox response', () => {
+  // The cross-check that makes an unreadable request folder loud rather than
+  // silent: a number here next to a failed pending read means somebody IS
+  // waiting in a folder we could not open.
+  assert.equal(parsePendingRequestsTotal(payload), 2);
+});
+
+test('an absent counter is null, which is not zero', () => {
+  // A payload that stopped carrying the field must not be reported as an empty
+  // request folder — that is the silent zero this whole field exists to prevent.
+  assert.equal(parsePendingRequestsTotal({ inbox: {} }), null);
+  assert.equal(parsePendingRequestsTotal({ pending_requests_total: 'nope' }), null);
+  assert.equal(parsePendingRequestsTotal(null), null);
+  assert.equal(parsePendingRequestsTotal({ pending_requests_total: 0 }), 0);
+  // Sent as a string in some captures, as ids are.
+  assert.equal(parsePendingRequestsTotal({ pending_requests_total: '3' }), 3);
 });

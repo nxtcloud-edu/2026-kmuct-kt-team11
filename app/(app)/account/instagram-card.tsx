@@ -21,9 +21,21 @@ import type { Me } from '@/lib/api/types';
  *
  * TWO STATES, AND THEY ARE NOT THE SAME FACT — docs/gaja/instagram-binding.md:
  *
- *   `linked` (users.igsid)      proof. Meta signed a webhook payload saying this
- *                               Instagram account is this person.
- *   `handle` (instagram_handle) a claim. Somebody typed it into a text field.
+ *   `linked` (users.igsid)      bound. A reel has arrived from this Instagram
+ *                               account and it was filed here.
+ *   `handle` (instagram_handle) a claim. Somebody typed it into a text field and
+ *                               no reel has arrived from it yet.
+ *
+ * THE COPY BELOW CHANGED ON 2026-09-20, because the thing it described changed.
+ * It used to say 아이디만으로는 연결되지 않아요 — the handle alone connects
+ * nothing — which was true while `users.igsid` could only be written by a
+ * Meta-signed webhook. That webhook does not exist, so nothing ever wrote the
+ * column, and exactly one hand-bound account could receive reels.
+ * `resolveSenderToUser` now binds a sender whose Instagram-reported handle
+ * matches this claim, which means the claim IS the connection and telling the
+ * user otherwise would be telling them to wait for a step that never comes.
+ * What it costs is in lib/ingest/route-sender.ts; what the user needs to know is
+ * only that typing it here is the whole of what they have to do.
  *
  * So a bound account says 확인됨 and an unbound claim says 확인 전, and the
  * second one is the only one offering a way to remove it. Clearing the handle on
@@ -107,7 +119,7 @@ export function InstagramCard({ handle, linked }: { handle: string | null; linke
           <p id={noteId} className="mt-[var(--space-7)] text-secondary" style={{ font: 'var(--type-caption)' }}>
             {malformed
               ? '영문 소문자와 숫자, 마침표, 밑줄만 쓸 수 있어요.'
-              : '아이디만으로는 연결되지 않아요. 나중에 인스타그램에서 한 번 더 확인해요.'}
+              : '이 아이디로 가자에 릴스를 보내면 자동으로 연결돼요.'}
           </p>
 
           {failure ? (
@@ -140,8 +152,8 @@ export function InstagramCard({ handle, linked }: { handle: string | null; linke
             {linked
               ? '가자 인스타그램으로 보낸 릴스가 이 계정에 저장돼요.'
               : value
-                ? '아이디만 받아둔 상태예요. 이 아이디만으로는 아직 아무것도 연결되지 않아요.'
-                : '아이디를 알려주면 나중에 릴스를 보낼 때 이 계정을 찾는 데 써요. 로그인과는 상관없어요.'}
+                ? '아직 이 아이디로 받은 릴스가 없어요. 한 번 보내면 연결돼요.'
+                : '아이디를 알려주면 그 계정에서 보낸 릴스가 여기에 저장돼요. 로그인과는 상관없어요.'}
           </p>
 
           {value ? (

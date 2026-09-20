@@ -39,6 +39,13 @@ const config: VercelConfig = {
   // more often than the floor is harmless — the extra passes return
   // `skipped: 'min-interval'` without touching Instagram. The floor is the real
   // rate limit; the cron only decides how often it gets a chance to expire.
+  //
+  // THIS CRON IS NOW A BACKSTOP AND NOT THE PRIMARY TRIGGER. Daily was too slow
+  // to be a product, so the pass is also started opportunistically off the home
+  // screen's own status poll — `after()` in app/api/reels/status/route.ts,
+  // driving lib/ingest/kick.ts at a ~5s floor. That covers every minute somebody
+  // has the app open; this line covers the nights when nobody does. Deleting it
+  // would mean an inbox that is never read unless a user is watching.
   // ── The events scrape ──────────────────────────────────────────────────────
   // popga's popups and yanolja's five 공연 genres, into `events`.
   //

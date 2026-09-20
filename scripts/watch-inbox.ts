@@ -120,7 +120,22 @@ function line(pass: number, summary: IngestPassSummary, ms: number): string {
     `saved=${summary.saved}`,
     `existed=${summary.already_existed}`,
   ];
+  if (summary.bound_by_handle) parts.push(`bound=${summary.bound_by_handle}`);
   if (summary.dropped_unknown_sender) parts.push(`unknown-sender=${summary.dropped_unknown_sender}`);
+
+  // THE MESSAGE-REQUEST FOLDER, ON EVERY LINE WHERE IT IS NOT 'ok'. Every other
+  // field above is printed only when it is non-zero, because a zero is ordinary.
+  // This one is printed when it is BROKEN, because a folder that cannot be read
+  // looks exactly like an empty one from `fetched=0` — which is the bug this
+  // watcher would otherwise help hide. `requests?` is Instagram's own count of
+  // what is waiting behind it.
+  const pending = summary.pending_inbox;
+  if (pending.read !== 'ok') {
+    parts.push(`pending=${pending.read}${pending.reason ? `(${pending.reason})` : ''}`);
+    if (pending.requests_total) parts.push(`requests-waiting=${pending.requests_total}`);
+  } else if (pending.threads_approved || pending.threads_seen) {
+    parts.push(`pending-approved=${pending.threads_approved}/${pending.threads_seen}`);
+  }
   if (summary.places_resolved || summary.places_unresolved) {
     parts.push(`places=${summary.places_resolved}/${summary.places_resolved + summary.places_unresolved}`);
   }

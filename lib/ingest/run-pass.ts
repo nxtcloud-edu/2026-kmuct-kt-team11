@@ -11,8 +11,15 @@
  *
  * FIVE STAGES, and the ORDER OF THE FIRST TWO IS THE PRODUCT:
  *
- *   1. `fetchNewClips`      — the inbox, behind `InboxSource`.
- *   2. `resolveSenderToUser`— whose reel is this? An unknown sender is dropped.
+ *   1. `fetchNewClips`      — the inbox AND the message-request folder, behind
+ *                             `InboxSource`. The second one matters more than it
+ *                             sounds: a reel from somebody who does not follow
+ *                             the Gaja account lands in Requests, which is where
+ *                             every new user's FIRST share lands.
+ *   2. `resolveSenderToUser`— whose reel is this? An igsid we know, else the
+ *                             sender's Instagram-reported handle matched against
+ *                             a unique claim and bound on the spot. An unknown
+ *                             sender is dropped, counted AND logged by handle.
  *   3. `claimReel`          — the row, `status = 'pending'`, BEFORE any analysis.
  *   4. `runLadder` + `resolvePlaceCandidates` — the expensive part. Network and
  *      models, deliberately with no transaction open.
@@ -49,7 +56,7 @@
  */
 
 import { ingestClip } from './ingest-clip';
-import type { InboxSource } from './inbox/index';
+import type { InboxSource, InboxSourceReport } from './inbox/index';
 import {
   DEFAULT_MIN_INTERVAL_MS,
   InboxBreakerTrippedError,
@@ -63,7 +70,35 @@ export type IngestPassSummary = {
   source: string;
   fetched: number;
   routed: number;
+  /**
+   * Senders bound to a Gaja account THIS PASS by their claimed Instagram handle
+   * — the first reel from a new user, which used to be dropped.
+   *
+   * A number that climbs on every pass rather than once per new user means a
+   * binding is not sticking: `users.igsid` is being written and then not found
+   * on the next read. See lib/ingest/route-sender.ts.
+   */
+  bound_by_handle: number;
   dropped_unknown_sender: number;
+  /**
+   * The message-request folder — whether it could be read at all, and what was
+   * accepted out of it.
+   *
+   * IT IS IN THE SUMMARY BECAUSE AN UNREADABLE FOLDER IS INVISIBLE OTHERWISE. A
+   * reel from somebody who does not follow the Gaja account lands there, which
+   * is where every new user's first share lands, and a pass that could not open
+   * it returns exactly the same `fetched: 0` as a pass over a quiet inbox.
+   * `requests_total` is Instagram's own count of what is waiting in it, so the
+   * two fields together say whether anything was actually missed.
+   */
+  pending_inbox: {
+    read: InboxSourceReport['pendingRead'];
+    /** A short tag naming what each host answered. Never a response body. */
+    reason: string | null;
+    threads_seen: number;
+    threads_approved: number;
+    requests_total: number | null;
+  };
   /** Reels claimed and analysed to completion this pass. */
   saved: number;
   already_existed: number;
@@ -141,7 +176,15 @@ export async function runIngestPass(
     source: INSTAGRAM_POLL_SOURCE,
     fetched: 0,
     routed: 0,
+    bound_by_handle: 0,
     dropped_unknown_sender: 0,
+    pending_inbox: {
+      read: 'skipped',
+      reason: null,
+      threads_seen: 0,
+      threads_approved: 0,
+      requests_total: null,
+    },
     saved: 0,
     already_existed: 0,
     failed: 0,
@@ -169,26 +212,57 @@ export async function runIngestPass(
 
   summary.fetched = clips.length;
 
+  // Copied out of the source rather than returned alongside the clips, because
+  // `InboxSource` is the seam a webhook will arrive through and a webhook has no
+  // message-request folder to report on. Optional method, absent implementation,
+  // zeroes in the summary — see lib/ingest/inbox/index.ts.
+  const report = source.lastReport?.() ?? null;
+  if (report) {
+    summary.pending_inbox = {
+      read: report.pendingRead,
+      reason: report.pendingReason,
+      threads_seen: report.pendingThreadsSeen,
+      threads_approved: report.pendingThreadsApproved,
+      requests_total: report.pendingRequestsTotal,
+    };
+  }
+
   // Oldest first, which parseInboxClips guarantees, so the cursor below is the
   // last clip actually processed rather than the newest one merely seen.
   let processedThrough: Date | null = null;
 
   for (const clip of clips) {
     try {
-      const routed = await resolveSenderToUser(clip.igsid);
+      // THE HANDLE IS PASSED, and it is what makes a brand-new sender work: an
+      // igsid nobody has seen before is matched against the unique
+      // `users.instagram_handle` claim and bound on the spot. The trust model
+      // that licenses this — and what it costs — is written out in
+      // lib/ingest/route-sender.ts. It is not a detail of this loop.
+      const routed = await resolveSenderToUser(clip.igsid, clip.senderUsername);
 
-      // UNRECOGNISED SENDER: DROPPED, COUNTED, NEVER SAVED. This is a product
-      // requirement, not a shortcut — lib/ingest/route-sender.ts explains why
-      // the alternative (park the payload and hope) is a retention question
-      // nobody has answered. Counting it is the only trace that remains, and it
-      // is also the number to watch: a large and growing count here means
-      // `users.igsid` is not being populated, not that nobody is sharing reels.
+      // UNRECOGNISED SENDER: DROPPED, COUNTED, LOGGED, NEVER SAVED. The drop is
+      // a product requirement, not a shortcut — lib/ingest/route-sender.ts
+      // explains why the alternative (park the payload and hope) is a retention
+      // question nobody has answered.
+      //
+      // THE LOG LINE IS THE NEW PART. A counter says "somebody was dropped"; it
+      // does not say who, and "who" is the entire actionable content — a
+      // handle nobody has claimed is a person who needs to type it into their
+      // account screen, and until now that fact existed nowhere. The @handle is
+      // public and is the only thing logged: not the caption, not the reel, not
+      // the thread.
       if (!routed) {
         summary.dropped_unknown_sender++;
+        console.warn(
+          `[ingest] no Gaja account claims @${clip.senderUsername ?? '(handle unknown)'}; ` +
+            `their reel was dropped. They can claim it on the account screen, ` +
+            `after which their next share binds automatically.`,
+        );
         processedThrough = clip.sharedAt;
         continue;
       }
       summary.routed++;
+      if (routed.boundByHandle) summary.bound_by_handle++;
 
       // ── 3, 4 AND 5, IN lib/ingest/ingest-clip.ts ───────────────────────────
       //

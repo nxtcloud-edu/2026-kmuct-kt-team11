@@ -22,10 +22,21 @@ import { runIngestPass } from '@/lib/ingest/run-pass';
  * `Authorization: Bearer $CRON_SECRET` header. A GET that mutates is not
  * something to be pleased about; it is the platform's contract and the secret is
  * what keeps it from being a drive-by. POST is exported alongside it so the
- * route can be driven by hand with the same header, which matters here because
- * this project has no Vercel deployment yet (see vercel.ts) and manual
- * invocation is one of only two ways it runs today — the other being the
- * watcher, which does not go through HTTP at all.
+ * route can be driven by hand with the same header.
+ *
+ * THIS IS NO LONGER THE MAIN WAY THE PASS RUNS, and the secret is no longer what
+ * decides who may run it. Cron on this plan is daily (vercel.ts), which cannot
+ * deliver a reel while the person who shared it is still holding their phone, so
+ * the same pass is also started off the home screen's status poll — `after()` in
+ * app/api/reels/status/route.ts, through lib/ingest/kick.ts. That does not make
+ * this route redundant: it is the backstop for the hours nobody has the app
+ * open, and it is the only trigger that returns the pass summary to a human.
+ *
+ * What bounds the Instagram account's request budget is `claimAttempt` in
+ * lib/ingest/state.ts — one statement that both tests and moves
+ * `ingest_state.last_attempt_at` — and not the secret on this door. The secret
+ * guards the SUMMARY, which is a real thing to guard: it is counts about
+ * somebody's DMs.
  */
 
 // The whole pass — one HTTP request to Instagram, then per clip a video download,

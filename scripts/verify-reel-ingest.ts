@@ -18,6 +18,13 @@ const IGSID = 'verify-reel-ingest-sender';
 const UNKNOWN_IGSID = 'verify-reel-ingest-nobody';
 const REEL = 'verify-reel-ingest-video-1';
 
+// Section 13's fixtures. The handle obeys `users_instagram_handle_shape`
+// ([a-z0-9._], 1–30) because a value that cannot be stored cannot be matched,
+// and it is distinctive enough to delete by.
+const CLAIMED_HANDLE = 'verify.reel.ingest';
+const CLAIMED_IGSID = 'verify-reel-ingest-by-handle';
+const SECOND_IGSID = 'verify-reel-ingest-by-handle-2';
+
 let failures = 0;
 
 function ok(what: string, pass: boolean, detail = '') {
@@ -78,7 +85,10 @@ async function ordinalsFor(reelId: string) {
 async function main() {
   // Re-runnable: the fixture account is deleted and recreated, and everything
   // downstream of it — reels, saved places — goes with it by ON DELETE CASCADE.
-  await query(`delete from users where igsid = any($1::text[])`, [[IGSID, UNKNOWN_IGSID]]);
+  await query(`delete from users where igsid = any($1::text[])`, [
+    [IGSID, UNKNOWN_IGSID, CLAIMED_IGSID, SECOND_IGSID],
+  ]);
+  await query(`delete from users where lower(instagram_handle) = $1`, [CLAIMED_HANDLE]);
   await query(`delete from places where area = 'verify'`);
   const user = await queryOne<{ id: string }>(
     `insert into users (display_name, igsid) values ('verify-reel-ingest', $1) returning id`,
@@ -330,6 +340,69 @@ async function main() {
   await markReelFailed(abandoned.reelId);
   // Otherwise the home screen says `분석 중` about a pass that died ten minutes ago.
   eq('markReelFailed moves it off pending', await statusOf(abandoned.reelId), 'failed');
+
+  // ── 13 ───────────────────────────────────────────────────────────────────
+  // The handle route: a sender nobody has ever seen, bound on their first reel
+  // by the handle their Gaja account claimed. This is what makes ingestion work
+  // for a new user at all — see lib/ingest/route-sender.ts and
+  // docs/gaja/instagram-binding.md for what it proves and what it costs.
+  console.log('\n13 — binding a new sender by their claimed handle');
+
+  const claimant = await queryOne<{ id: string }>(
+    `insert into users (display_name, email, instagram_handle)
+     values ('verify-handle-claimant', 'verify-handle@example.test', $1) returning id`,
+    [CLAIMED_HANDLE],
+  );
+  const claimantId = claimant!.id;
+
+  // The handle alone is not enough: the payload has to name the sender.
+  eq('an unknown igsid with no handle is still a drop', await resolveSenderToUser(CLAIMED_IGSID), null);
+  eq(
+    'an unknown igsid with an unclaimed handle is a drop',
+    await resolveSenderToUser(CLAIMED_IGSID, 'nobody.claims.this'),
+    null,
+  );
+
+  const bound = await resolveSenderToUser(CLAIMED_IGSID, CLAIMED_HANDLE);
+  ok('a claimed handle binds the sender', bound?.userId === claimantId);
+  ok('and says it did the binding', bound?.boundByHandle === true);
+  eq(
+    'users.igsid was written',
+    (await queryOne<{ igsid: string | null }>(`select igsid from users where id = $1`, [claimantId]))!.igsid,
+    CLAIMED_IGSID,
+  );
+  // The binding is a handle match, not the confirmation ceremony the doc
+  // describes, so the row must stay in the tier a real webhook binding can evict.
+  eq(
+    'instagram_linked_at stays null — this is not proof',
+    (await queryOne<{ at: Date | null }>(`select instagram_linked_at as at from users where id = $1`, [claimantId]))!.at,
+    null,
+  );
+
+  // Instagram reports handles as the owner typed them; the column is lowercase.
+  await query(`update users set igsid = null where id = $1`, [claimantId]);
+  const cased = await resolveSenderToUser(CLAIMED_IGSID, 'Verify.Reel.Ingest');
+  ok('the match is case-insensitive', cased?.userId === claimantId);
+
+  // Idempotent: the second reel from the same sender takes the igsid path.
+  const again = await resolveSenderToUser(CLAIMED_IGSID, CLAIMED_HANDLE);
+  ok('the second reel routes by igsid, not by handle', again?.userId === claimantId);
+  ok('and is not counted as a new binding', again?.boundByHandle === false);
+
+  // THE GUARD THAT MATTERS: a bound account is never re-pointed at a different
+  // Instagram account because someone else's DM carried the same handle.
+  eq(
+    'a second igsid cannot take an already-bound account',
+    await resolveSenderToUser(SECOND_IGSID, CLAIMED_HANDLE),
+    null,
+  );
+  eq(
+    'the original binding is untouched',
+    (await queryOne<{ igsid: string | null }>(`select igsid from users where id = $1`, [claimantId]))!.igsid,
+    CLAIMED_IGSID,
+  );
+
+  await query(`delete from users where id = $1`, [claimantId]);
 
   await query(`delete from users where id = $1`, [userId]);
   // The fixture places are not owned by the user and do not cascade with them,

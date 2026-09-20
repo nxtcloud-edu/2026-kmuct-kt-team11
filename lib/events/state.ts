@@ -97,7 +97,7 @@ export type ClaimResult =
  * Decides whether this category runs now and, if it does, spends its budget.
  *
  * THE STAMP IS WRITTEN BEFORE THE REQUEST LEAVES, which is lib/ingest/state.ts's
- * `markAttempt` argument applied here: a cooldown enforced from a timestamp
+ * `claimAttempt` argument applied here: a cooldown enforced from a timestamp
  * written on the way OUT is not a cooldown at all. A pass that hangs, crashes or
  * is killed mid-flight would leave the previous attempt's time in place and the
  * next invocation would be free to go again immediately.

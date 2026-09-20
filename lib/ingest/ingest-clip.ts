@@ -45,8 +45,15 @@ import { captureReelThumbnail } from './thumbnail';
  * documentation on that type — what a null caption costs, why the urls are
  * expected to die — is the documentation for this one too, and a field added
  * there cannot be silently missing here.
+ *
+ * `senderUsername` is omitted alongside `igsid` because it is the other half of
+ * the same answer — WHO sent this — and a pasted link has no sender at all: the
+ * person who pasted it is the signed-in user, already known, and is not
+ * necessarily whoever shared the reel. Routing is the caller's job on both
+ * paths; by the time a payload reaches this function it has already been
+ * decided whose reel it is.
  */
-export type ReelPayload = Omit<InboxClip, 'igsid' | 'sharedAt'>;
+export type ReelPayload = Omit<InboxClip, 'igsid' | 'senderUsername' | 'sharedAt'>;
 
 export type IngestClipOutcome = {
   reelId: string;
