@@ -40,7 +40,7 @@ ASR_MODEL=whisper-1
 ```bash
 npm install
 npm run dev      # http://localhost:3000
-npm test         # 49 tests
+npm test
 npm run build
 ```
 
@@ -89,10 +89,11 @@ import하거나 이름으로 실행하지 않는지 검사합니다.
 
 ```
 app/
-  page.tsx                      업로드 UI
+  transcribe/page.tsx           업로드 UI (파일만 받음. / 는 랜딩 페이지가 차지)
   api/transcribe/route.ts       POST, 멀티파트 업로드 → AsrRung
 lib/extraction/
   types.ts                      Media, AsrRung
+  cli-args.ts                   CLI 인자 파싱 (테스트 가능하도록 분리)
   provider.ts                   키·엔드포인트·모델 설정, 비용 추정
   upload.ts                     원본 직송 가능 여부 판단
   rungs/asr.ts                  전사 본체
