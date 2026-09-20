@@ -31,21 +31,64 @@ case "$hostport" in
   \[*\]*) DB_HOST="${hostport#\[}"; DB_HOST="${DB_HOST%%\]*}" ;;  # [::1]:54322
   *)      DB_HOST="${hostport%%:*}" ;;
 esac
+# `--remote` is the deliberate way past this, and it exists because the reason
+# the rail was written stopped being the only consideration. Instagram challenged
+# the account twice in one afternoon and both challenges landed on requests made
+# from a Vercel function, while the same cookie kept answering from a home
+# connection. So running this pass from a laptop against the PRODUCTION database
+# is no longer a mistake to prevent — it is the mitigation, and the cloud is the
+# thing being switched off (`INGEST_OPPORTUNISTIC=off`).
+#
+# It stays opt-in and noisy because everything the original rail said is still
+# true: this writes real users' reels and saved places, on a loop, unattended,
+# with whatever credentials .env.local happens to hold. Typing the flag is the
+# point — nobody reaches production by forgetting to set a variable.
+ALLOW_REMOTE=0
+for arg in "$@"; do
+  case "$arg" in --remote) ALLOW_REMOTE=1 ;; esac
+done
+
 case "$DB_HOST" in
   localhost|127.0.0.1|::1) ;;
   *)
-    cat >&2 <<MSG
+    if [ "$ALLOW_REMOTE" != 1 ]; then
+      cat >&2 <<MSG
 refusing to run: DATABASE_URL points at "$DB_HOST", which is not localhost.
 
-This is a development watcher. It polls Instagram on a loop and writes reels and
-saved places for whichever accounts it finds — not something to point at a shared
-database. Point DATABASE_URL at the local Supabase (port 54322) and run it again.
+This watcher polls Instagram on a loop and writes reels and saved places for
+whichever accounts it finds. Against a shared database that is real people's
+rows, written unattended with this machine's credentials.
+
+If that is what you mean — running the poll from a home connection because the
+cloud IP keeps getting challenged — say so explicitly:
+
+    ./scripts/watch-inbox.sh --remote --interval=60s
+
+Otherwise point DATABASE_URL at the local Supabase (port 54322).
 MSG
-    exit 1 ;;
+      exit 1
+    fi
+    cat >&2 <<MSG
+── WRITING TO A REMOTE DATABASE: $DB_HOST ──
+Real accounts' reels and saved places will be created by this loop.
+Ctrl-C stops it after the pass in flight finishes.
+MSG
+    ;;
 esac
 
-if ! psql "$DB" -q -c 'select 1' >/dev/null 2>&1; then
-  echo "no database on $DB_HOST — start the local Supabase first (npx supabase start)." >&2
+# The query string is stripped for THIS probe only. A remote URL carries driver
+# options psql has never heard of — `uselibpqcompat`, which node-postgres needs
+# to accept Supabase's pooler certificate — and psql exits non-zero on an unknown
+# parameter, which read as "no database" and sent the user to start a local one
+# that was not the problem. The probe only needs to answer "can this host be
+# reached and authenticated"; the driver keeps the full URL.
+PROBE_DB="${DB%%\?*}"
+if ! psql "$PROBE_DB" -q -c 'select 1' >/dev/null 2>&1; then
+  if [ "$ALLOW_REMOTE" = 1 ]; then
+    echo "cannot reach $DB_HOST — check DATABASE_URL and the network." >&2
+  else
+    echo "no database on $DB_HOST — start the local Supabase first (npx supabase start)." >&2
+  fi
   exit 1
 fi
 
@@ -95,4 +138,11 @@ ln -s "$ROOT/node_modules" "$OUT/node_modules"
 # `exec` so Ctrl-C reaches node directly: the watcher installs its own SIGINT
 # handler to finish the pass in flight rather than leaving a reel claimed and
 # stuck on `pending`, and a bash wrapper in the middle would swallow the signal.
-exec node "$OUT/scripts/watch-inbox.js" "$@"
+# `--remote` is consumed here; the TypeScript entry point does not know it and
+# would reject it as an unknown flag.
+ARGS=()
+for arg in "$@"; do
+  case "$arg" in --remote) ;; *) ARGS+=("$arg") ;; esac
+done
+
+exec node "$OUT/scripts/watch-inbox.js" "${ARGS[@]+"${ARGS[@]}"}"

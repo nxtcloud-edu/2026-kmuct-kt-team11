@@ -108,6 +108,7 @@ export const OPPORTUNISTIC_MIN_INTERVAL_MS = 60_000;
  */
 let warnedNotConfigured = false;
 let warnedBreaker = false;
+let warnedDisabled = false;
 
 /**
  * Start one ingest pass if the floor allows it. Never throws, never returns
@@ -118,6 +119,34 @@ let warnedBreaker = false;
  * pass finishes; the value is deliberately void.
  */
 export async function kickIngestPass(): Promise<void> {
+  // ── THE OFF SWITCH, AND WHY IT IS AN ENV VAR AND NOT A CODE CHANGE ────────
+  //
+  // Instagram challenged this account twice in one afternoon, and both times the
+  // request that drew the challenge came from a Vercel function. The same cookie
+  // kept answering 200 from a home connection minutes either side of it — so the
+  // signal Instagram is acting on is at least partly WHERE the request comes
+  // from, not just how often. A datacentre IP replaying a browser session is the
+  // shape it is looking for.
+  //
+  // `INGEST_OPPORTUNISTIC=off` moves the polling off the cloud entirely:
+  // `scripts/watch-inbox.sh` runs the identical pass from a laptop on a domestic
+  // connection, against the same database, and the two coordinate for free
+  // because the floor lives in `ingest_state.last_attempt_at` rather than in
+  // either process. The daily cron stays as a backstop.
+  //
+  // An env var rather than a deploy because the decision is operational and may
+  // need reversing in the twenty seconds before a demo, not in a build.
+  if (process.env.INGEST_OPPORTUNISTIC?.trim().toLowerCase() === 'off') {
+    if (!warnedDisabled) {
+      warnedDisabled = true;
+      console.log(
+        '[ingest] INGEST_OPPORTUNISTIC=off — this deployment will not poll Instagram. ' +
+          'Reels arrive via the daily cron or a local watcher.',
+      );
+    }
+    return;
+  }
+
   // Cheap gate before the database. Without the session cookie the pass throws
   // `InboxNotConfiguredError` before it does anything else, and a round trip to
   // Postgres on every status poll to discover that is a waste. It also keeps a
