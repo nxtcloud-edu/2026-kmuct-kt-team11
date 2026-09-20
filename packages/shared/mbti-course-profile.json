@@ -158,10 +158,10 @@
     "budgetTolerance": 0.1,
     "maxDurationMin": 300,
     "defaultDurationMin": {
-      "meal": 75,
-      "cafe_dessert": 60,
-      "experience": 90,
-      "finale": 60
+      "meal": 60,
+      "cafe_dessert": 45,
+      "experience": 60,
+      "finale": 45
     },
     "slotTemplate": ["meal", "cafe_dessert", "experience", "finale"],
     "slotMapping": {

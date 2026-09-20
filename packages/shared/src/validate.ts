@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
+import { alignClockMinutes, resolveOpeningTimeline, visitFitsWindow } from './opening-hours';
 import { getTypeProfile, loadCourseProfile } from './profile';
-import { parseHourRange } from './rank';
 import type { CandidatePlace, CoursePlan, CourseProfile, CourseRequest } from './types';
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -79,11 +79,6 @@ export interface ValidationResult {
   metrics: { evidenceCoverage: number; factualityErrors: number };
 }
 
-function toMinutes(time: string): number | null {
-  const match = time.match(/^(\d{1,2}):(\d{2})$/);
-  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
-}
-
 const FACTUALITY_CODES = new Set([
   'schema', 'unknown-place', 'unknown-alternative', 'price-mismatch', 'source-mismatch',
   'missing-sponsored-notice', 'dropped-caution', 'outside-opening-hours',
@@ -127,6 +122,9 @@ export function validateCourseResponse(
   const seen = new Set<string>();
   let evidenceFilled = 0;
   let budgetSum = 0;
+  let timelineCursor = request.user.constraints.timeRange
+    ? (alignClockMinutes(request.user.constraints.timeRange.split(/\s*[-~〜～∼–—]\s*/)[0], 0) ?? 0)
+    : 0;
 
   course.stops.forEach((stop, index) => {
     const place = byId.get(stop.placeId);
@@ -167,10 +165,18 @@ export function validateCourseResponse(
     if (stop.why.tasteEvidence.length > 0) evidenceFilled += 1;
     else issues.push({ code: 'missing-taste-evidence', severity: 'error', message: '영상 취향 근거가 없습니다.', ...at });
 
-    const open = place.openingHours ? parseHourRange(place.openingHours) : null;
-    const start = toMinutes(stop.startTime ?? '');
-    const end = toMinutes(stop.endTime ?? '');
-    if (open && start !== null && end !== null && (start < open.start || end > open.end)) {
+    const start = alignClockMinutes(stop.startTime, timelineCursor);
+    const end = start === null ? null : start + stop.durationMin;
+    const opening = place.openingHours
+      ? resolveOpeningTimeline(place.openingHours, request.user.constraints.date ?? '')
+      : null;
+    if (
+      opening &&
+      opening.status !== 'unknown' &&
+      start !== null &&
+      end !== null &&
+      !visitFitsWindow(opening.windows, start, end)
+    ) {
       issues.push({ code: 'outside-opening-hours', severity: 'error', message: `${stop.startTime}-${stop.endTime}이 영업시간 밖입니다.`, ...at });
     }
 
@@ -179,6 +185,7 @@ export function validateCourseResponse(
     if (isLast && stop.moveToNext) issues.push({ code: 'trailing-move', severity: 'error', message: '마지막 장소에는 이동 정보가 없어야 합니다.', ...at });
     if (stop.moveToNext && stop.moveToNext.minutes > maxMoveMinutes) issues.push({ code: 'too-far', severity: 'error', message: `이동 시간이 ${maxMoveMinutes}분을 초과합니다.`, ...at });
     if (stop.moveToNext?.mode === '택시' && !request.user.constraints.hard?.allowTaxi) issues.push({ code: 'taxi-not-allowed', severity: 'error', message: '택시가 허용되지 않았습니다.', ...at });
+    if (end !== null) timelineCursor = end + (stop.moveToNext?.minutes ?? 0);
   });
 
   if (course.totalDurationMin > maxDurationMin) issues.push({ code: 'course-too-long', severity: 'error', message: `총 코스 시간이 ${maxDurationMin}분을 초과합니다.` });

@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 
 import { generateDateCourse } from '../packages/shared/src/agent';
+import {
+  resolveOpeningHours,
+  resolveOpeningTimeline,
+  visitFitsWindow,
+} from '../packages/shared/src/opening-hours';
+import { checkHardConstraints } from '../packages/shared/src/rank';
 import { parseCourseRequest } from '../packages/shared/src/request';
+import { fallbackTravelProvider, planCourse } from '../packages/shared/src/schedule';
 import type { CandidatePlace, CourseDraft, CourseRequest } from '../packages/shared/src/types';
+import { validateCourseResponse } from '../packages/shared/src/validate';
 
 function place(
   placeId: string,
@@ -102,7 +110,151 @@ const invalidDraft: CourseDraft = {
   stops: [{ ...validDraft.stops[0], placeId: 'hallucinated-place' }, ...validDraft.stops.slice(1)],
 };
 
+function verifyOpeningHoursParsing() {
+  const friday = resolveOpeningHours(
+    '매일 11:00-22:30 금,토 11:00-23:00',
+    '2026-09-25',
+  );
+  assert.deepEqual(friday.windows, [{ start: 660, end: 1380, lastOrder: null }]);
+
+  const monday = resolveOpeningHours(
+    '매주 월요일 휴무 / 화-일 10:00-20:00',
+    '2026-09-21',
+  );
+  assert.equal(monday.status, 'closed');
+
+  const lastOrder = resolveOpeningHours(
+    '매일 11:00~22:30 (라스트오더 21:30)',
+    '2026-09-26',
+  );
+  assert.deepEqual(lastOrder.windows, [{ start: 660, end: 1350, lastOrder: 1290 }]);
+
+  const koreanClock = resolveOpeningHours('오전 11시 - 오후 10시', '2026-09-26');
+  assert.deepEqual(koreanClock.windows, [{ start: 660, end: 1320, lastOrder: null }]);
+
+  const breakTime = resolveOpeningHours(
+    '매일 11:00-22:00 브레이크타임 15:00-17:00',
+    '2026-09-26',
+  );
+  assert.deepEqual(breakTime.windows, [
+    { start: 660, end: 900, lastOrder: null },
+    { start: 1020, end: 1320, lastOrder: null },
+  ]);
+
+  const overnight = resolveOpeningTimeline('금 18:00-02:00', '2026-09-26');
+  assert.equal(visitFitsWindow(overnight.windows, 30, 90), true);
+}
+
+async function verifyTravelFallback() {
+  const from = {
+    ...candidates[0],
+    location: { nearestStation: '대화', regionTags: ['일산'] },
+  };
+  const to = {
+    ...candidates[1],
+    location: { nearestStation: '강남', regionTags: ['강남'] },
+  };
+  const leg = await fallbackTravelProvider.estimate({
+    from,
+    to,
+    allowTaxi: false,
+    maxWalkMinutes: 20,
+    maxMoveMinutes: 25,
+  });
+  assert.equal(leg.minutes, 26, '근거 없는 이동 추정은 제한을 통과하면 안 됩니다.');
+}
+
+async function verifyScheduleBoundaries() {
+  const overnightRequest: CourseRequest = {
+    ...request,
+    user: {
+      ...request.user,
+      constraints: {
+        ...request.user.constraints,
+        date: '2026-09-26',
+        timeRange: '00:30-05:00',
+      },
+    },
+    candidatePlaces: candidates.map((candidate) => ({
+      ...candidate,
+      openingHours: candidate.placeId === 'p1' ? '금 18:00-02:00' : '24시간',
+    })),
+  };
+  const overnightCourse = await planCourse(validDraft, overnightRequest);
+  const overnightValidation = validateCourseResponse(overnightCourse, overnightRequest);
+  assert.equal(
+    overnightValidation.issues.some((issue) => issue.code === 'outside-opening-hours'),
+    false,
+    '전날 시작한 심야 영업은 자정 이후에도 유효해야 합니다.',
+  );
+
+  const lateRequest: CourseRequest = {
+    ...request,
+    user: {
+      ...request.user,
+      constraints: { ...request.user.constraints, timeRange: '21:00-23:00' },
+    },
+    candidatePlaces: candidates.map((candidate) =>
+      candidate.placeId === 'p3'
+        ? { ...candidate, openingHours: '11:00-20:00' }
+        : candidate,
+    ),
+  };
+  const lateCourse = await planCourse(validDraft, lateRequest);
+  const lateValidation = validateCourseResponse(lateCourse, lateRequest);
+  assert.equal(
+    lateValidation.issues.some((issue) => issue.code === 'outside-opening-hours'),
+    true,
+    '자정 wrap 뒤에도 마감 후 방문을 거부해야 합니다.',
+  );
+
+  const alternatives = [
+    { placeId: 'p5', name: '대안 공방', reason: '체험 대안' },
+    { placeId: 'p6', name: '대안 디저트', reason: '카페 대안' },
+  ];
+  const fourStopDraft: CourseDraft = {
+    ...validDraft,
+    stops: [
+      ...validDraft.stops.map((stop) => ({ ...stop, alternatives })),
+      {
+        order: 4,
+        slot: 'finale',
+        placeId: 'p4',
+        name: '대안 전시',
+        category: 'culture_exhibition',
+        why,
+        alternatives,
+        cautions: [],
+        sponsoredNotice: null,
+      },
+    ],
+  };
+  const fourStopCourse = await planCourse(fourStopDraft, request);
+  const fourStopValidation = validateCourseResponse(fourStopCourse, request);
+  assert.equal(fourStopCourse.stops.length, 4);
+  assert.equal(fourStopCourse.totalDurationMin <= 300, true);
+  assert.equal(
+    fourStopValidation.issues.some((issue) => issue.code === 'course-too-long'),
+    false,
+    '기본 4-stop 코스는 300분 안에 구성 가능해야 합니다.',
+  );
+
+  const mondayClosed = checkHardConstraints(
+    { ...candidates[0], openingHours: '매주 월요일 휴무 / 화-일 10:00-20:00' },
+    {
+      ...request.user.constraints,
+      date: '2026-09-21',
+      timeRange: '12:00-13:00',
+    },
+  );
+  assert.equal(mondayClosed.passed, false, '요청 날짜의 휴무일을 후보 필터에서 제외해야 합니다.');
+}
+
 async function main() {
+  verifyOpeningHoursParsing();
+  await verifyTravelFallback();
+  await verifyScheduleBoundaries();
+
   let calls = 0;
   const result = await generateDateCourse(parseCourseRequest(request), {
     modelId: 'self-check-model',

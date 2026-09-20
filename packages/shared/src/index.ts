@@ -23,6 +23,15 @@ export {
 export { courseDraftSchema, parseCourseDraft, validateCourseDraft } from './draft';
 export { courseRequestSchema, parseCourseRequest } from './request';
 export {
+  alignClockMinutes,
+  parseHourRange,
+  resolveOpeningHours,
+  resolveOpeningTimeline,
+  visitFitsWindow,
+  type OpeningHoursResolution,
+  type OpeningWindow,
+} from './opening-hours';
+export {
   fallbackTravelProvider,
   planCourse,
   type PlanOptions,
@@ -65,7 +74,6 @@ export {
   computeTasteFit,
   countSignalMatches,
   getFeatureGroupIndex,
-  parseHourRange,
   placeSignalTokens,
   rankCandidates,
   withRankedCandidates,

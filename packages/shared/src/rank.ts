@@ -1,4 +1,5 @@
 import { featureMappings } from './assets';
+import { parseHourRange, resolveOpeningTimeline } from './opening-hours';
 import { loadCourseProfile, resolveAxes, resolveWeights, type ResolvedAxis } from './profile';
 import type { CandidatePlace, CourseProfile, CourseRequest, TasteVector } from './types';
 
@@ -164,19 +165,7 @@ export function computeMbtiFit(place: CandidatePlace, axes: ResolvedAxis[]): Mbt
 /* 하드 제약                                                            */
 /* ------------------------------------------------------------------ */
 
-export function parseHourRange(value: string): { start: number; end: number } | null {
-  if (value.includes("24시간")) return { start: 0, end: 24 * 60 };
-
-  const match = value.match(/(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/);
-  if (!match) return null;
-
-  const [, sh, sm, eh, em] = match;
-  const start = Number(sh) * 60 + Number(sm);
-  let end = Number(eh) * 60 + Number(em);
-  if (end <= start) end += 24 * 60; // 새벽 마감
-
-  return { start, end };
-}
+export { parseHourRange } from './opening-hours';
 
 function rangesOverlap(
   a: { start: number; end: number },
@@ -222,8 +211,12 @@ export function checkHardConstraints(
 
   if (constraints.timeRange && place.openingHours) {
     const requested = parseHourRange(constraints.timeRange);
-    const open = parseHourRange(place.openingHours);
-    if (requested && open && !rangesOverlap(requested, open)) {
+    const opening = resolveOpeningTimeline(place.openingHours, constraints.date ?? '');
+    const hasUsableOverlap = requested && opening.windows.some((window) => {
+      const latestArrival = window.lastOrder ?? window.end;
+      return rangesOverlap(requested, { start: window.start, end: Math.min(window.end, latestArrival + 1) });
+    });
+    if (opening.status === 'closed' || (requested && opening.status === 'open' && !hasUsableOverlap)) {
       reasons.push(`요청 시간대(${constraints.timeRange})와 영업시간이 겹치지 않음`);
     }
   }

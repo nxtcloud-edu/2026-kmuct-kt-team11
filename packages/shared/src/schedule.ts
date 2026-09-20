@@ -1,5 +1,5 @@
 import { loadCourseProfile } from './profile';
-import { parseHourRange } from './rank';
+import { parseHourRange, resolveOpeningTimeline, type OpeningWindow } from './opening-hours';
 import type {
   CandidatePlace,
   CourseDraft,
@@ -93,11 +93,7 @@ function coarseEstimate(
     return { mode: '도보', minutes: 8, estimated: true };
   }
 
-  const regionsA = new Set(from.location?.regionTags ?? []);
-  const sharesRegion = (to.location?.regionTags ?? []).some((tag) => regionsA.has(tag));
-  if (sharesRegion) return { mode: '도보', minutes: 15, estimated: true };
-
-  return { mode: '대중교통', minutes: maxMoveMinutes, estimated: true };
+  return { mode: '대중교통', minutes: maxMoveMinutes + 1, estimated: true };
 }
 
 /* ------------------------------------------------------------------ */
@@ -111,8 +107,10 @@ function formatMinutes(total: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-function openingWindow(place: CandidatePlace): { start: number; end: number } | null {
-  return place.openingHours ? parseHourRange(place.openingHours) : null;
+function openingWindows(place: CandidatePlace, date: string): OpeningWindow[] | null {
+  if (!place.openingHours) return null;
+  const resolution = resolveOpeningTimeline(place.openingHours, date);
+  return resolution.status === 'unknown' ? null : resolution.windows;
 }
 
 function waitingMinutes(place: CandidatePlace): number {
@@ -141,6 +139,30 @@ function reservationActionFor(place: CandidatePlace): string | null {
   return reservation.includes('필수')
     ? `${place.title}은 예약 필수입니다. 방문 2일 전까지 예약하세요.`
     : `${place.title}은 예약을 권장합니다.`;
+}
+
+const MIN_DURATION: Record<string, number> = {
+  meal: 45,
+  cafe_dessert: 30,
+  experience: 45,
+  finale: 30,
+};
+
+function fitVisit(
+  windows: OpeningWindow[],
+  earliestStart: number,
+  desiredDuration: number,
+  latestStart: number,
+  minimumDuration: number,
+): { start: number; duration: number } | null {
+  for (const window of windows) {
+    const start = Math.max(earliestStart, window.start);
+    if (start > latestStart || start >= window.end) continue;
+    if (window.lastOrder !== null && start > window.lastOrder) continue;
+    const duration = Math.min(desiredDuration, window.end - start);
+    if (duration >= minimumDuration) return { start, duration };
+  }
+  return null;
 }
 
 export async function planCourse(
@@ -190,17 +212,26 @@ export async function planCourse(
       continue;
     }
 
-    const open = openingWindow(place);
+    const windows = openingWindows(place, request.user.constraints.date ?? '');
     let duration = defaultDuration[draftStop.slot] ?? 60;
     let start = cursor + waitingMinutes(place);
 
-    if (open) {
-      if (start < open.start) start = open.start; // 개점 전 도착이면 기다린다
-      if (start >= open.end) {
-        warnings.push(`${place.title}에 영업 종료 후 도착합니다. 순서를 바꾸거나 교체하세요.`);
-      } else if (start + duration > open.end) {
-        duration = open.end - start;
-        warnings.push(`${place.title}의 마감 시각에 맞춰 체류 시간을 ${duration}분으로 줄였습니다.`);
+    if (windows) {
+      const fitted = fitVisit(
+        windows,
+        start,
+        duration,
+        requested?.end ?? start + maxDurationMin,
+        MIN_DURATION[draftStop.slot] ?? 30,
+      );
+      if (!fitted) {
+        warnings.push(`${place.title}을 요청 시간 안에 이용할 수 없습니다. 순서를 바꾸거나 교체하세요.`);
+      } else {
+        start = fitted.start;
+        if (fitted.duration < duration) {
+          duration = fitted.duration;
+          warnings.push(`${place.title}의 마감 시각에 맞춰 체류 시간을 ${duration}분으로 줄였습니다.`);
+        }
       }
     } else {
       verificationRequired.push(`${place.title} 영업시간`);
